@@ -1,0 +1,1 @@
+ALTER TABLE "need_fill_levels" ADD COLUMN "strategies" text;

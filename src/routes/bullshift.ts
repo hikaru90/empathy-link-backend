@@ -1,0 +1,817 @@
+import { desc, eq } from 'drizzle-orm';
+import { drizzle } from 'drizzle-orm/node-postgres';
+import type { Context } from 'hono';
+import { Hono } from 'hono';
+import { chats as chatsTable, feelings as feelingsTable } from '../../drizzle/schema.js';
+import { decryptChatHistory, encryptChatHistory, type HistoryEntry } from '../lib/encryption.js';
+import { getAiResponseWithRetry, analyzePathSwitchingIntent, type PathSwitchAnalysis } from '../lib/gemini.js';
+import { createPathMarker, getSystemPromptForPath, type PathState, CONVERSATION_PATHS } from '../lib/paths.js';
+import { analyzeChat, extractMemories, extractNVCFromMessage } from '../lib/ai-tools.js';
+import { searchSimilarMemories, formatMemoriesForPrompt } from '../lib/memory.js';
+
+const db = drizzle(process.env.DATABASE_URL!);
+const bullshift = new Hono();
+
+// POST /api/ai/bullshift/initChat - Initialize a new chat session
+bullshift.post('/initChat', async (c: Context) => {
+	const user = c.get('user');
+	if (!user) {
+		return c.json({ error: 'Unauthorized' }, 401);
+	}
+
+	try {
+		const body = await c.req.json();
+		const { locale, initialPath } = body;
+
+		const pathId = initialPath || 'idle';
+		console.log('initChat called with pathId:', pathId, 'for user:', user.id);
+
+		// Create initial path state
+		const pathState: PathState = {
+			activePath: pathId,
+			pathHistory: [pathId],
+			startedAt: Date.now()
+		};
+
+		// Create initial path marker
+		const pathMarker = createPathMarker('path_start', pathId);
+
+		// Create initial history with path marker
+		const initialHistory: HistoryEntry[] = [
+			// Hidden user message to satisfy Gemini's requirement
+			{
+				role: 'user',
+				parts: [{ text: '[System: Chat initialisiert]' }],
+				timestamp: Date.now(),
+				hidden: true // Mark as hidden so it doesn't show in UI
+			},
+			// Path marker as model message (text will not be displayed, only visual indicator)
+			{
+				role: 'model',
+				parts: [{ text: '' }], // Empty text - only pathMarker is used for display
+				timestamp: Date.now(),
+				pathMarker
+			}
+		];
+
+		// If starting with idle path, add proactive welcome message
+		if (pathId === 'idle') {
+			const welcomeMessage1 = `Ich begleite dich dabei, schwierige Situationen zu erforschen – ob Streit mit einer wichtigen Person oder ein innerer Konflikt, bei dem du hin- und hergerissen bist.<br/><br/>Es geht dabei nicht um Tipps oder fertige Lösungen, sondern ich helfe dir, deine eigenen Gefühle und Gedanken zu sortieren. So findest du selbst heraus, was dir wichtig ist.<br/><br/>Manchmal schauen wir gemeinsam auf deine Sicht, manchmal auf die Perspektive der anderen Person. Wichtig ist: Du kannst hier nichts falsch machen. Alles, was dich bewegt, hat hier seinen Platz. <br/><br/>Und deine Gespräche bleiben natürlich privat und sicher – sie gehören nur dir.`;
+
+			const welcomeMessage2 = `Was kann ich heute für Dich tun?`;
+
+			initialHistory.push({
+				role: 'model',
+				parts: [{ text: welcomeMessage1 }],
+				timestamp: Date.now()
+			});
+			initialHistory.push({
+				role: 'model',
+				parts: [{ text: welcomeMessage2 }],
+				timestamp: Date.now()
+			});
+		}
+
+		// Encrypt history before storing
+		const encryptedHistory = encryptChatHistory(initialHistory);
+
+		// Store in database
+		const chatRecord = await db.insert(chatsTable).values({
+			id: crypto.randomUUID(),
+			userId: user.id,
+			module: 'bullshift',
+			history: JSON.stringify(encryptedHistory),
+			pathState: JSON.stringify(pathState)
+		}).returning();
+
+		console.log('Created new chat record:', chatRecord[0].id);
+
+		// Get system instruction for the specific path
+		const systemInstruction = getSystemPromptForPath(pathId, user);
+
+		// Return chat initialization data with unencrypted history for immediate use
+		return c.json({
+			chatId: chatRecord[0].id,
+			systemInstruction,
+			activePath: pathId,
+			pathState,
+			history: initialHistory // Return unencrypted for immediate display
+		});
+
+	} catch (error) {
+		console.error('Error initializing chat:', error);
+		return c.json({ error: 'Failed to initialize chat' }, 500);
+	}
+});
+
+// GET /api/ai/bullshift/getLatestChat - Get the latest active chat session
+bullshift.get('/getLatestChat', async (c: Context) => {
+	const user = c.get('user');
+	if (!user) {
+		return c.json({ error: 'Unauthorized' }, 401);
+	}
+
+	try {
+		console.log('getLatestChat called for user:', user.id);
+
+		// Get the latest chat for this user
+		const chatRecord = await db.select().from(chatsTable)
+			.where(eq(chatsTable.userId, user.id))
+			.orderBy(desc(chatsTable.created))
+			.limit(1);
+
+		if (!chatRecord || chatRecord.length === 0) {
+			return c.json({ error: 'No active chat found' }, 404);
+		}
+
+		const chat = chatRecord[0];
+
+		// Parse and decrypt history
+		const encryptedHistory = JSON.parse(chat.history || '[]');
+		const history = decryptChatHistory(encryptedHistory);
+
+		// Parse path state
+		const pathState = chat.pathState ? JSON.parse(chat.pathState) : { activePath: 'idle' };
+		const activePath = pathState.activePath || 'idle';
+
+		// Get system instruction for current path
+		const systemInstruction = getSystemPromptForPath(activePath, user);
+
+		console.log('Found existing chat:', chat.id, 'with path:', activePath);
+
+		return c.json({
+			chatId: chat.id,
+			systemInstruction,
+			activePath,
+			pathState,
+			history
+		});
+
+	} catch (error) {
+		console.error('Error getting latest chat:', error);
+		return c.json({ error: 'Failed to get latest chat' }, 500);
+	}
+});
+
+// POST /api/ai/bullshift/send - Send a message and get AI response
+bullshift.post('/send', async (c: Context) => {
+	const user = c.get('user');
+	if (!user) {
+		return c.json({ error: 'Unauthorized' }, 401);
+	}
+
+	try {
+		const body = await c.req.json();
+		const { chatId, message, history } = body;
+
+		if (!chatId || !message) {
+			return c.json({ error: 'chatId and message are required' }, 400);
+		}
+
+		console.log('send called for chat:', chatId);
+
+		// Verify chat belongs to user and get path state
+		const chatRecord = await db.select().from(chatsTable)
+			.where(eq(chatsTable.id, chatId))
+			.limit(1);
+
+		if (!chatRecord || chatRecord.length === 0) {
+			return c.json({ error: 'Chat not found' }, 404);
+		}
+
+		if (chatRecord[0].userId !== user.id) {
+			return c.json({ error: 'Unauthorized' }, 403);
+		}
+
+		// Get path state to determine system prompt
+		const pathState = chatRecord[0].pathState ? JSON.parse(chatRecord[0].pathState) : { activePath: 'idle' };
+		let activePath = pathState.activePath || 'idle';
+
+		// PATH SWITCHING ANALYSIS - Analyze if user wants to switch paths
+		let pathSwitchAnalysis: PathSwitchAnalysis | null = null;
+		let pathSwitched = false;
+		let newPathId: string | null = null;
+
+		try {
+			// Prepare recent conversation history for analysis
+			const decryptedHistory = chatRecord[0].history ? JSON.parse(chatRecord[0].history) : [];
+			const fullHistory = decryptChatHistory(decryptedHistory);
+
+			const preliminaryMessages = fullHistory.slice(-6)
+				.filter((h: any) => h.parts && h.parts.length > 0 && !h.pathMarker && !h.hidden)
+				.map((h: any) => ({
+					role: h.role === 'model' ? 'assistant' : h.role as string,
+					content: h.parts[0]?.text || ''
+				}))
+				.filter((m: any) => (m.role === 'user' || m.role === 'assistant') && m.content.trim().length > 0);
+
+			// Add current user message to context
+			preliminaryMessages.push({ role: 'user', content: message });
+
+			console.log('🔍 Pre-response path analysis - User message:', message);
+			console.log('🔍 Current active path:', activePath);
+			console.log('🔍 Path state object:', pathState);
+			console.log('🔍 Passing to AI - activePath value:', activePath, 'type:', typeof activePath);
+
+			// Special handling for feedback path - only allow explicit switches
+			if (activePath === 'feedback') {
+				const explicitSwitchKeywords = [
+					'beenden', 'ende', 'stop', 'aufhören', 'abbrechen',
+					'selbst-empathie', 'fremd-empathie', 'handlungsplanung', 'konfliktlösung',
+					'anderes thema', 'wechseln zu', 'gehen zu'
+				];
+
+				const hasExplicitSwitch = explicitSwitchKeywords.some(keyword =>
+					message.toLowerCase().includes(keyword)
+				);
+
+				if (!hasExplicitSwitch) {
+					console.log('🔒 Feedback path: Preventing automatic path switching');
+				} else {
+					console.log('🔓 Feedback path: Explicit switch detected, running path analysis');
+					pathSwitchAnalysis = await analyzePathSwitchingIntent(
+						message,
+						activePath,
+						preliminaryMessages,
+						'de'
+					);
+				}
+			} else {
+				// ALWAYS run AI path analysis for all non-feedback paths
+				console.log('🤖 Running AI path analysis for all messages');
+				pathSwitchAnalysis = await analyzePathSwitchingIntent(
+					message,
+					activePath,
+					preliminaryMessages,
+					'de'
+				);
+			}
+
+			console.log('🔍 Path analysis result:', pathSwitchAnalysis);
+
+			// Switch path if AI determines it's appropriate
+			if (pathSwitchAnalysis?.shouldSwitch &&
+				(pathSwitchAnalysis?.confidence || 0) >= 70 && // Lowered from 80 to 70
+				pathSwitchAnalysis?.suggestedPath &&
+				pathSwitchAnalysis.suggestedPath !== activePath) {
+
+				const nextPath = pathSwitchAnalysis.suggestedPath;
+				console.log('🔄 Switching path BEFORE AI response generation');
+				console.log('🎯 Switching from:', activePath, 'to:', nextPath);
+				console.log('📊 Confidence:', pathSwitchAnalysis.confidence);
+				console.log('📝 Reason:', pathSwitchAnalysis.reason);
+
+				if (CONVERSATION_PATHS[nextPath]) {
+					// Update path state
+					const newPathState: PathState = {
+						activePath: nextPath,
+						pathHistory: [...pathState.pathHistory, nextPath],
+						startedAt: pathState.startedAt,
+						lastSwitch: Date.now()
+					};
+
+					// Update database with new path state
+					await db.update(chatsTable)
+						.set({ pathState: JSON.stringify(newPathState) })
+						.where(eq(chatsTable.id, chatId));
+
+					pathSwitched = true;
+					newPathId = nextPath;
+					activePath = nextPath; // Update active path for the response
+					console.log(`✅ Path switched to ${nextPath}`);
+				}
+			} else if (pathSwitchAnalysis) {
+				console.log('❌ No path switch - AI decision:', pathSwitchAnalysis.reason);
+				console.log('   shouldSwitch:', pathSwitchAnalysis.shouldSwitch, 'confidence:', pathSwitchAnalysis.confidence);
+			}
+		} catch (error) {
+			console.error('❌ Error analyzing path switching:', error);
+		}
+
+		// PROACTIVE MEMORY RETRIEVAL: Search for relevant memories based on user message
+		let memoryContext = '';
+		let relevantMemories: any[] = [];
+
+		try {
+			console.log('🧠 Proactively searching for relevant memories...');
+			relevantMemories = await searchSimilarMemories(message, user.id, 3);
+
+			if (relevantMemories.length > 0) {
+				memoryContext = formatMemoriesForPrompt(relevantMemories);
+				console.log(`✅ Found ${relevantMemories.length} relevant memories to inject into context`);
+			} else {
+				console.log('📭 No relevant memories found');
+			}
+		} catch (memoryError) {
+			console.error('⚠️ Memory search failed, continuing without memories:', memoryError);
+			// Continue without memories if search fails
+		}
+
+		// Load existing NVC components from chat to avoid asking for them again
+		let existingFeelings: string[] = [];
+		let existingNeeds: string[] = [];
+		let existingObservation: string | null = null;
+		let existingRequest: string | null = null;
+
+		if (chatRecord[0].feelings) {
+			try {
+				const parsedFeelings = JSON.parse(chatRecord[0].feelings);
+				if (Array.isArray(parsedFeelings)) {
+					existingFeelings = parsedFeelings;
+				}
+			} catch (e) {
+				console.warn('Failed to parse existing feelings from chat');
+			}
+		}
+
+		if (chatRecord[0].needs) {
+			try {
+				const parsedNeeds = JSON.parse(chatRecord[0].needs);
+				if (Array.isArray(parsedNeeds)) {
+					existingNeeds = parsedNeeds;
+				}
+			} catch (e) {
+				console.warn('Failed to parse existing needs from chat');
+			}
+		}
+
+		// Build NVC context to inject into system prompt
+		let nvcContext = '';
+		if (existingFeelings.length > 0 || existingNeeds.length > 0 || existingObservation || existingRequest) {
+			nvcContext = '\n\n**BEREITS ERFASSTE NVC-KOMPONENTEN:**\n';
+			
+			if (existingObservation) {
+				nvcContext += `- Beobachtung: ${existingObservation}\n`;
+			}
+			
+			if (existingFeelings.length > 0) {
+				nvcContext += `- Gefühle: ${existingFeelings.join(', ')}\n`;
+			}
+			
+			if (existingNeeds.length > 0) {
+				nvcContext += `- Bedürfnisse: ${existingNeeds.join(', ')}\n`;
+			}
+			
+			if (existingRequest) {
+				nvcContext += `- Bitte: ${existingRequest}\n`;
+			}
+			
+			nvcContext += '\n**WICHTIG:** Diese Komponenten wurden bereits vom Nutzer genannt. Frage NICHT erneut danach, es sei denn, der Nutzer bringt neue Aspekte ein oder möchte etwas ändern. Nutze diese Informationen, um deine Antworten zu kontextualisieren und dem Nutzer zu zeigen, dass du dich an bereits Gesagtes erinnerst.';
+		}
+
+		// Get system instruction for current path with memory context and NVC context
+		let systemInstruction = getSystemPromptForPath(activePath, user, memoryContext);
+		
+		// Append NVC context to system instruction
+		if (nvcContext) {
+			systemInstruction += nvcContext;
+		}
+
+		// For memory path specifically, inject memory context
+		if (activePath === 'memory') {
+			if (!memoryContext) {
+				// If no memories found, search more broadly
+				try {
+					const allMemories = await searchSimilarMemories('', user.id, 10);
+					memoryContext = formatMemoriesForPrompt(allMemories);
+				} catch (e) {
+					memoryContext = '- Keine Erinnerungen gefunden';
+				}
+			}
+			systemInstruction = getSystemPromptForPath(activePath, user, memoryContext);
+		} else if (memoryContext) {
+			// For other paths, inject memories subtly in system prompt
+			systemInstruction += `\n\n**KONTEXTWISSEN ÜBER DEN NUTZER:**\n${memoryContext}\nNutze dieses Wissen subtil und natürlich, um deine Antworten zu personalisieren. Erwähne Erinnerungen nur, wenn sie für die aktuelle Situation relevant sind.`;
+		}
+
+		console.log('📝 SYSTEM PROMPT:');
+		console.log('='.repeat(80));
+		console.log(systemInstruction);
+		console.log('='.repeat(80));
+
+		// Extract NVC components from user message
+		let nvcExtraction: { observation: string | null; feelings: string[]; needs: string[]; request: string | null } | null = null;
+		try {
+			console.log('🔍 Extracting NVC components from user message...');
+			nvcExtraction = await extractNVCFromMessage(message, 'de');
+			console.log('✅ NVC extraction completed:', {
+				observation: nvcExtraction.observation ? 'present' : 'none',
+				feelings: nvcExtraction.feelings.length,
+				needs: nvcExtraction.needs.length,
+				request: nvcExtraction.request ? 'present' : 'none'
+			});
+		} catch (nvcError) {
+			console.error('⚠️ NVC extraction failed, continuing without extraction:', nvcError);
+			// Continue without NVC extraction if it fails
+		}
+
+		// Add user message to history
+		const userMessage: HistoryEntry = {
+			role: 'user',
+			parts: [{ text: message }],
+			timestamp: Date.now()
+		};
+
+		const historyWithUserMessage = [...(history || []), userMessage];
+
+		// Get AI response with retry logic
+		let aiResponse: string;
+		try {
+			aiResponse = await getAiResponseWithRetry(
+				message,
+				historyWithUserMessage,
+				systemInstruction,
+				3 // max retries
+			);
+		} catch (aiError) {
+			console.error('AI response error:', aiError);
+			// Return a helpful error message to the user
+			const errorMessage = aiError instanceof Error ? aiError.message : 'Failed to get AI response';
+			return c.json({
+				error: errorMessage,
+				fallbackResponse: 'Entschuldigung, ich habe gerade technische Schwierigkeiten. Bitte versuche es noch einmal.'
+			}, 500);
+		}
+
+		// Add AI response to history
+		const modelMessage: HistoryEntry = {
+			role: 'model',
+			parts: [{ text: aiResponse }],
+			timestamp: Date.now()
+		};
+
+		const updatedHistory = [...historyWithUserMessage, modelMessage];
+
+		// Encrypt and save updated history
+		const encryptedHistory = encryptChatHistory(updatedHistory);
+
+		// Aggregate NVC components: merge new extraction with existing chat data
+		// (We already loaded existingFeelings and existingNeeds above, reuse them)
+		let aggregatedFeelings: string[] = [...existingFeelings];
+		let aggregatedNeeds: string[] = [...existingNeeds];
+		let latestObservation: string | null = existingObservation;
+		let latestRequest: string | null = existingRequest;
+
+		// Add new NVC components (avoid duplicates)
+		if (nvcExtraction) {
+			// Merge feelings (avoid duplicates)
+			for (const feeling of nvcExtraction.feelings) {
+				if (!aggregatedFeelings.includes(feeling)) {
+					aggregatedFeelings.push(feeling);
+				}
+			}
+			
+			// Merge needs (avoid duplicates)
+			for (const need of nvcExtraction.needs) {
+				if (!aggregatedNeeds.includes(need)) {
+					aggregatedNeeds.push(need);
+				}
+			}
+
+			// Store latest observation and request (overwrite previous if new one exists)
+			if (nvcExtraction.observation) {
+				latestObservation = nvcExtraction.observation;
+			}
+			if (nvcExtraction.request) {
+				latestRequest = nvcExtraction.request;
+			}
+		}
+
+		// Prepare update data
+		const updateData: any = {
+			history: JSON.stringify(encryptedHistory),
+			updated: new Date().toISOString()
+		};
+
+		// Update feelings and needs if we have new data
+		if (aggregatedFeelings.length > 0) {
+			updateData.feelings = JSON.stringify(aggregatedFeelings);
+		}
+		if (aggregatedNeeds.length > 0) {
+			updateData.needs = JSON.stringify(aggregatedNeeds);
+		}
+		
+		// Note: observation and request columns don't exist in chats table yet
+		// They are stored in analyses table after chat completion
+		// For now, we extract them but don't store in chats table
+		// TODO: Add observation and request columns to chats table if needed
+
+		await db.update(chatsTable)
+			.set(updateData)
+			.where(eq(chatsTable.id, chatId));
+
+		console.log('Message processed successfully, AI responded');
+
+		// Add path markers to history if path was switched
+		let historyWithMarkers = updatedHistory;
+		if (pathSwitched && newPathId) {
+			const pathMarker = createPathMarker('path_switch', newPathId, pathState.activePath);
+			const pathMarkerEntry: HistoryEntry = {
+				role: 'model',
+				parts: [{ text: '' }],
+				timestamp: Date.now(),
+				pathMarker
+			};
+			historyWithMarkers = [...updatedHistory, pathMarkerEntry];
+
+			// Save history with path marker
+			const encryptedHistoryWithMarker = encryptChatHistory(historyWithMarkers);
+			await db.update(chatsTable)
+				.set({
+					history: JSON.stringify(encryptedHistoryWithMarker),
+					updated: new Date().toISOString()
+				})
+				.where(eq(chatsTable.id, chatId));
+		}
+
+		// Return AI response with updated history, memories, and path switch info
+		return c.json({
+			response: aiResponse,
+			timestamp: Date.now(),
+			history: historyWithMarkers,
+			pathSwitched: pathSwitched,
+			newPath: newPathId,
+			pathSwitchReason: pathSwitchAnalysis?.reason,
+			activePath: activePath,
+			memoriesUsed: relevantMemories.length,
+			memories: relevantMemories // Include the memories that were used
+		});
+
+	} catch (error) {
+		console.error('Error sending message:', error);
+		const errorMessage = error instanceof Error ? error.message : 'Failed to send message';
+		return c.json({ error: errorMessage }, 500);
+	}
+});
+
+// GET /api/ai/bullshift/getHistory - Get chat history (optional, for refresh)
+bullshift.get('/getHistory', async (c: Context) => {
+	const user = c.get('user');
+	if (!user) {
+		return c.json({ error: 'Unauthorized' }, 401);
+	}
+
+	try {
+		const chatId = c.req.query('chatId');
+
+		if (!chatId) {
+			return c.json({ error: 'chatId is required' }, 400);
+		}
+
+		// Get chat from database
+		const chatRecord = await db.select().from(chatsTable)
+			.where(eq(chatsTable.id, chatId))
+			.limit(1);
+
+		if (!chatRecord || chatRecord.length === 0) {
+			return c.json({ error: 'Chat not found' }, 404);
+		}
+
+		if (chatRecord[0].userId !== user.id) {
+			return c.json({ error: 'Unauthorized' }, 403);
+		}
+
+		// Parse and decrypt history
+		const encryptedHistory = JSON.parse(chatRecord[0].history || '[]');
+		// Note: We don't decrypt here in the MVP - we'll return encrypted and let client handle it
+		// Or decrypt on backend and send plain to client
+		const history = encryptedHistory; // TODO: Add decryption if needed
+
+		const pathState = chatRecord[0].pathState ? JSON.parse(chatRecord[0].pathState) : null;
+
+		return c.json({
+			history,
+			pathState
+		});
+
+	} catch (error) {
+		console.error('Error getting history:', error);
+		return c.json({ error: 'Failed to get history' }, 500);
+	}
+});
+
+// GET /api/ai/bullshift/feelings - Get all feelings
+bullshift.get('/feelings', async (c: Context) => {
+	try {
+		const feelings = await db.select().from(feelingsTable).orderBy(feelingsTable.sort);
+		return c.json(feelings);
+	} catch (error) {
+		console.error('Error getting feelings:', error);
+		return c.json({ error: 'Failed to get feelings' }, 500);
+	}
+});
+
+// GET /api/ai/bullshift/needs - Get all needs (using feelings table structure for now)
+bullshift.get('/needs', async (c: Context) => {
+	try {
+		// For now, we'll use a hardcoded list of needs since there's no needs table
+		// This should be replaced with a proper needs table in the future
+		const needs = [
+			{ id: '1', nameDE: 'Verbindung', nameEN: 'Connection', category: 'relationship', sort: 1 },
+			{ id: '2', nameDE: 'Verständnis', nameEN: 'Understanding', category: 'relationship', sort: 2 },
+			{ id: '3', nameDE: 'Sicherheit', nameEN: 'Safety', category: 'physical', sort: 3 },
+			{ id: '4', nameDE: 'Autonomie', nameEN: 'Autonomy', category: 'personal', sort: 4 },
+			{ id: '5', nameDE: 'Respekt', nameEN: 'Respect', category: 'relationship', sort: 5 },
+			{ id: '6', nameDE: 'Gerechtigkeit', nameEN: 'Justice', category: 'social', sort: 6 },
+			{ id: '7', nameDE: 'Kreativität', nameEN: 'Creativity', category: 'personal', sort: 7 },
+			{ id: '8', nameDE: 'Ruhe', nameEN: 'Peace', category: 'personal', sort: 8 },
+			{ id: '9', nameDE: 'Spaß', nameEN: 'Fun', category: 'personal', sort: 9 },
+			{ id: '10', nameDE: 'Wachstum', nameEN: 'Growth', category: 'personal', sort: 10 },
+		];
+		return c.json(needs);
+	} catch (error) {
+		console.error('Error getting needs:', error);
+		return c.json({ error: 'Failed to get needs' }, 500);
+	}
+});
+
+// POST /api/ai/bullshift/analyzeChat - Analyze a completed chat session
+bullshift.post('/analyzeChat', async (c: Context) => {
+	const user = c.get('user');
+	if (!user) {
+		return c.json({ error: 'Unauthorized' }, 401);
+	}
+
+	try {
+		const body = await c.req.json();
+		const { chatId, locale = 'de', initialPath = 'idle' } = body;
+
+		if (!chatId) {
+			return c.json({ error: 'chatId is required' }, 400);
+		}
+
+		console.log('analyzeChat called for chat:', chatId, 'user:', user.id);
+
+		// Step 1: Analyze the chat
+		const result = await analyzeChat(chatId, user.id, locale);
+		console.log('Analysis completed with ID:', result.id);
+
+		// Step 2: Initialize a new chat session for the user
+		const pathId = initialPath || 'idle';
+		const pathState: PathState = {
+			activePath: pathId,
+			pathHistory: [pathId],
+			startedAt: Date.now()
+		};
+
+		const pathMarker = createPathMarker('path_start', pathId);
+
+		const initialHistory: HistoryEntry[] = [
+			{
+				role: 'user',
+				parts: [{ text: '[System: Chat initialisiert]' }],
+				timestamp: Date.now(),
+				hidden: true
+			},
+			{
+				role: 'model',
+				parts: [{ text: '' }],
+				timestamp: Date.now(),
+				pathMarker
+			}
+		];
+
+		if (pathId === 'idle') {
+			const welcomeMessage1 = `Ich begleite dich dabei, schwierige Situationen zu erforschen – ob Streit mit einer wichtigen Person oder ein innerer Konflikt, bei dem du hin- und hergerissen bist.<br/><br/>Es geht dabei nicht um Tipps oder fertige Lösungen, sondern ich helfe dir, deine eigenen Gefühle und Gedanken zu sortieren. So findest du selbst heraus, was dir wichtig ist.<br/><br/>Manchmal schauen wir gemeinsam auf deine Sicht, manchmal auf die Perspektive der anderen Person. Wichtig ist: Du kannst hier nichts falsch machen. Alles, was dich bewegt, hat hier seinen Platz. <br/><br/>Und deine Gespräche bleiben natürlich privat und sicher – sie gehören nur dir.`;
+			const welcomeMessage2 = `Was kann ich heute für Dich tun?`;
+
+			initialHistory.push({
+				role: 'model',
+				parts: [{ text: welcomeMessage1 }],
+				timestamp: Date.now()
+			});
+			initialHistory.push({
+				role: 'model',
+				parts: [{ text: welcomeMessage2 }],
+				timestamp: Date.now()
+			});
+		}
+
+		const encryptedHistory = encryptChatHistory(initialHistory);
+
+		const newChatRecord = await db.insert(chatsTable).values({
+			id: crypto.randomUUID(),
+			userId: user.id,
+			module: 'bullshift',
+			history: JSON.stringify(encryptedHistory),
+			pathState: JSON.stringify(pathState)
+		}).returning();
+
+		console.log('Created new chat record:', newChatRecord[0].id);
+
+		const systemInstruction = getSystemPromptForPath(pathId, user);
+
+		// Step 3: Extract memories from the analyzed chat (pass the specific chatId)
+		console.log('Triggering memory extraction for chat:', chatId);
+		try {
+			await extractMemories(user.id, locale, chatId);
+			console.log('Memory extraction completed');
+		} catch (memError) {
+			console.error('Memory extraction failed:', memError);
+			// Don't fail the whole request if memory extraction fails
+		}
+
+		// Return both the analysis and the new chat session
+		return c.json({
+			initiatedChat: {
+				chatId: newChatRecord[0].id,
+				systemInstruction,
+				activePath: pathId,
+				pathState,
+				history: initialHistory
+			},
+			analysis: {
+				id: result.id,
+				...result.analysis
+			}
+		});
+
+	} catch (error) {
+		console.error('Error analyzing chat:', error);
+		const errorMessage = error instanceof Error ? error.message : 'Failed to analyze chat';
+		return c.json({ error: errorMessage }, 500);
+	}
+});
+
+// PUT /api/ai/bullshift/updateHistory - Update chat history (for reopening chats)
+bullshift.put('/updateHistory', async (c: Context) => {
+	const user = c.get('user');
+	if (!user) {
+		return c.json({ error: 'Unauthorized' }, 401);
+	}
+
+	try {
+		const body = await c.req.json();
+		const { chatId, history, pathState } = body;
+
+		if (!chatId || !history) {
+			return c.json({ error: 'chatId and history are required' }, 400);
+		}
+
+		console.log('updateHistory called for chat:', chatId);
+
+		// Verify chat belongs to user
+		const chatRecord = await db.select().from(chatsTable)
+			.where(eq(chatsTable.id, chatId))
+			.limit(1);
+
+		if (!chatRecord || chatRecord.length === 0) {
+			return c.json({ error: 'Chat not found' }, 404);
+		}
+
+		if (chatRecord[0].userId !== user.id) {
+			return c.json({ error: 'Unauthorized' }, 403);
+		}
+
+		// Encrypt and save the history
+		const encryptedHistory = encryptChatHistory(history);
+		const updateData: any = {
+			history: JSON.stringify(encryptedHistory),
+			updated: new Date().toISOString()
+		};
+
+		if (pathState) {
+			updateData.pathState = JSON.stringify(pathState);
+		}
+
+		await db.update(chatsTable)
+			.set(updateData)
+			.where(eq(chatsTable.id, chatId));
+
+		console.log('Chat history updated for chat:', chatId);
+
+		return c.json({ success: true });
+
+	} catch (error) {
+		console.error('Error updating chat history:', error);
+		const errorMessage = error instanceof Error ? error.message : 'Failed to update chat history';
+		return c.json({ error: errorMessage }, 500);
+	}
+});
+
+// POST /api/ai/bullshift/extractMemories - Extract memories from unprocessed chats
+bullshift.post('/extractMemories', async (c: Context) => {
+	const user = c.get('user');
+	if (!user) {
+		return c.json({ error: 'Unauthorized' }, 401);
+	}
+
+	try {
+		const body = await c.req.json().catch(() => ({}));
+		const { locale = 'de', chatId } = body;
+
+		console.log('extractMemories called for user:', user.id);
+
+		// Call the extractMemories function
+		const success = await extractMemories(user.id, locale, chatId);
+
+		return c.json({ success });
+
+	} catch (error) {
+		console.error('Error extracting memories:', error);
+		const errorMessage = error instanceof Error ? error.message : 'Failed to extract memories';
+		return c.json({ error: errorMessage }, 500);
+	}
+});
+
+export default bullshift;
