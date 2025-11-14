@@ -1,0 +1,150 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+	<meta charset="UTF-8">
+	<meta name="viewport" content="width=device-width, initial-scale=1.0">
+	<title>NVC Knowledge Base</title>
+	<script src="https://cdn.tailwindcss.com"></script>
+	<link rel="stylesheet" href="styles.css">
+</head>
+<body class="min-h-screen bg-gray-50">
+	<div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+		<div class="mb-8">
+			<h1 class="text-3xl font-bold text-gray-900 mb-2">NVC Knowledge Base</h1>
+			<p class="text-gray-600">Manage and search Nonviolent Communication knowledge</p>
+		</div>
+
+		<div id="error" class="hidden mb-4 bg-red-50 border border-red-200 text-red-800 px-4 py-3 rounded"></div>
+
+		<div id="editor-container" class="hidden">
+			<div class="bg-white rounded-lg shadow-lg p-6 max-w-4xl mx-auto">
+				<div class="mb-6">
+					<h2 class="text-2xl font-bold text-gray-900" id="editor-title">Create New Entry</h2>
+				</div>
+				<form id="entry-form" class="space-y-6">
+					<div class="grid grid-cols-2 gap-4">
+						<div>
+							<label class="block text-sm font-medium text-gray-700 mb-1">Language *</label>
+							<select id="form-language" class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500" required>
+								<option value="de">German (de)</option>
+								<option value="en">English (en)</option>
+							</select>
+							<p class="mt-1 text-xs text-gray-500">Select the language for this knowledge entry. Use 'de' for German content, 'en' for English.</p>
+						</div>
+						<div>
+							<label class="block text-sm font-medium text-gray-700 mb-1">Category *</label>
+							<select id="form-category" class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500" required>
+								<option value="">Select category...</option>
+							</select>
+							<p class="mt-1 text-xs text-gray-500">Choose the main category (e.g., "principles", "examples", "techniques", "feelings", "needs").</p>
+						</div>
+					</div>
+					<div>
+						<label class="block text-sm font-medium text-gray-700 mb-1">Title *</label>
+						<input type="text" id="form-title" maxlength="200" placeholder="e.g., 'The Four Components of NVC'" class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500" required>
+						<p class="mt-1 text-xs text-gray-500">A concise, descriptive title (max 200 characters). Examples: "Observation vs. Evaluation", "Expressing Feelings", "Making Requests".</p>
+					</div>
+					<div>
+						<label class="block text-sm font-medium text-gray-700 mb-1">Content *</label>
+						<textarea id="form-content" rows="10" maxlength="5000" placeholder="Enter the detailed content here. This will be used for semantic search, so be thorough and clear..." class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500" required></textarea>
+						<div class="flex justify-between mt-1">
+							<p class="text-xs text-gray-500">Detailed explanation, example, or description. This content is embedded for semantic search, so be comprehensive (max 5000 characters).</p>
+							<span id="content-length" class="text-xs text-gray-400">0 / 5000</span>
+						</div>
+					</div>
+					<div class="grid grid-cols-2 gap-4">
+						<div>
+							<label class="block text-sm font-medium text-gray-700 mb-1">Subcategory</label>
+							<input type="text" id="form-subcategory" maxlength="100" placeholder="e.g., 'observation', 'feelings', 'needs'" class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500">
+							<p class="mt-1 text-xs text-gray-500">Optional. A more specific subcategory (max 100 characters). Examples: "observation", "feelings", "needs", "requests".</p>
+						</div>
+						<div>
+							<label class="block text-sm font-medium text-gray-700 mb-1">Source</label>
+							<input type="text" id="form-source" maxlength="200" placeholder="e.g., 'Marshall Rosenberg', 'NVC Foundation', 'CNVC'" class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500">
+							<p class="mt-1 text-xs text-gray-500">Optional. Author, organization, or source of this knowledge (max 200 characters). Examples: "Marshall Rosenberg", "NVC Foundation".</p>
+						</div>
+					</div>
+					<div>
+						<label class="block text-sm font-medium text-gray-700 mb-1">Tags</label>
+						<div class="flex gap-2 mb-2">
+							<input type="text" id="new-tag" maxlength="50" placeholder="Enter a tag (e.g., 'empathy', 'communication', 'conflict')" class="flex-1 px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500">
+							<button type="button" id="add-tag-btn" class="px-4 py-2 bg-gray-200 text-gray-700 rounded-lg hover:bg-gray-300">Add</button>
+						</div>
+						<p class="mb-2 text-xs text-gray-500">Add tags to help categorize and find this entry. Each tag should be a single word or short phrase (max 50 characters). Press Enter or click Add.</p>
+						<div id="tags-container" class="flex flex-wrap gap-2"></div>
+					</div>
+					<div>
+						<label class="block text-sm font-medium text-gray-700 mb-1">Priority (1-5)</label>
+						<input type="range" min="1" max="5" value="3" id="form-priority" class="w-full">
+						<div class="flex justify-between mt-1">
+							<div class="text-center text-sm text-gray-600">Priority: <span id="priority-value" class="font-semibold">3</span></div>
+							<div class="text-xs text-gray-500">
+								<span class="inline-block mr-2">1 = Low</span>
+								<span class="inline-block mr-2">3 = Medium</span>
+								<span class="inline-block">5 = High</span>
+							</div>
+						</div>
+						<p class="mt-1 text-xs text-gray-500">Higher priority entries appear more prominently in search results. Use 5 for core NVC concepts, 1 for supplementary information.</p>
+					</div>
+					<div class="flex justify-end gap-4 pt-4 border-t">
+						<button type="button" id="cancel-btn" class="px-4 py-2 border border-gray-300 rounded-lg text-gray-700 hover:bg-gray-50">Cancel</button>
+						<button type="submit" class="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700">Save</button>
+					</div>
+					<input type="hidden" id="form-id">
+				</form>
+			</div>
+		</div>
+
+		<div id="list-container">
+			<div class="bg-white rounded-lg shadow mb-6 p-6">
+				<div class="flex flex-col sm:flex-row gap-4 mb-6">
+					<div class="flex-1">
+						<input type="text" id="search-input" placeholder="Search NVC knowledge..." class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500">
+					</div>
+					<button id="new-entry-btn" class="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition">+ New Entry</button>
+				</div>
+				<div class="flex gap-4 mb-4">
+					<select id="language-filter" class="px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500">
+						<option value="all">All Languages</option>
+						<option value="de">German</option>
+						<option value="en">English</option>
+					</select>
+					<select id="category-filter" class="px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500">
+						<option value="">All Categories</option>
+					</select>
+				</div>
+			</div>
+
+			<div id="entries-container" class="bg-white rounded-lg shadow">
+				<div class="px-6 py-4 border-b border-gray-200">
+					<h2 class="text-xl font-semibold text-gray-900" id="entries-title">All Entries</h2>
+				</div>
+				<div class="overflow-x-auto">
+					<table class="min-w-full divide-y divide-gray-200">
+						<thead class="bg-gray-50">
+							<tr>
+								<th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Title</th>
+								<th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Language</th>
+								<th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Category</th>
+								<th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Tags</th>
+								<th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Priority</th>
+								<th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Updated</th>
+								<th class="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase">Actions</th>
+							</tr>
+						</thead>
+						<tbody id="entries-tbody" class="bg-white divide-y divide-gray-200">
+							<tr>
+								<td colspan="7" class="px-6 py-8 text-center text-gray-500">Loading...</td>
+							</tr>
+						</tbody>
+					</table>
+				</div>
+			</div>
+		</div>
+	</div>
+
+	<script src="api.js"></script>
+	<script src="app.js"></script>
+</body>
+</html>
+

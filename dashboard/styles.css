@@ -1,0 +1,9 @@
+/* Custom styles for NVC Knowledge Base Dashboard */
+
+.line-clamp-1 {
+	display: -webkit-box;
+	-webkit-line-clamp: 1;
+	-webkit-box-orient: vertical;
+	overflow: hidden;
+}
+

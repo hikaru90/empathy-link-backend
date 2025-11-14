@@ -6,7 +6,7 @@ import { chats as chatsTable, feelings as feelingsTable } from '../../drizzle/sc
 import { decryptChatHistory, encryptChatHistory, type HistoryEntry } from '../lib/encryption.js';
 import { getAiResponseWithRetry, analyzePathSwitchingIntent, type PathSwitchAnalysis } from '../lib/gemini.js';
 import { createPathMarker, getSystemPromptForPath, type PathState, CONVERSATION_PATHS } from '../lib/paths.js';
-import { analyzeChat, extractMemories, extractNVCFromMessage } from '../lib/ai-tools.js';
+import { analyzeChat, extractMemories, extractNVCFromMessage, retrieveNVCKnowledge } from '../lib/ai-tools.js';
 import { searchSimilarMemories, formatMemoriesForPrompt } from '../lib/memory.js';
 
 const db = drizzle(process.env.DATABASE_URL!);
@@ -307,6 +307,36 @@ bullshift.post('/send', async (c: Context) => {
 			// Continue without memories if search fails
 		}
 
+		// PROACTIVE NVC KNOWLEDGE RETRIEVAL: Search for relevant NVC knowledge based on user message
+		let nvcKnowledgeContext = '';
+		let relevantNVCKnowledge: any[] = [];
+
+		try {
+			console.log('📚 Proactively searching for relevant NVC knowledge...');
+			const nvcKnowledgeResult = await retrieveNVCKnowledge(message, 'de', {
+				limit: 3,
+				minSimilarity: 0.7
+			});
+
+			relevantNVCKnowledge = nvcKnowledgeResult.knowledgeEntries;
+
+			if (relevantNVCKnowledge.length > 0) {
+				// Format NVC knowledge entries for prompt injection
+				const knowledgeEntries = relevantNVCKnowledge.map((entry, idx) => {
+					return `**${entry.title}** (Ähnlichkeit: ${(entry.similarity * 100).toFixed(0)}%)\n${entry.content}${entry.source ? `\n_Quelle: ${entry.source}_` : ''}`;
+				}).join('\n\n');
+
+				nvcKnowledgeContext = `\n\n**RELEVANTES GFK-WISSEN FÜR DIESE SITUATION:**\n${knowledgeEntries}\n\nNutze dieses Wissen, um dem Nutzer hilfreiche GFK-Perspektiven und -Konzepte anzubieten, wenn sie für die aktuelle Situation relevant sind. Integriere das Wissen natürlich und subtil in deine Antworten, ohne es aufzudrängen.`;
+				console.log(`✅ Found ${relevantNVCKnowledge.length} relevant NVC knowledge entries to inject into context`);
+				console.log('📋 Extracted concepts:', nvcKnowledgeResult.extractedConcepts);
+			} else {
+				console.log('📭 No relevant NVC knowledge found');
+			}
+		} catch (nvcKnowledgeError) {
+			console.error('⚠️ NVC knowledge retrieval failed, continuing without knowledge:', nvcKnowledgeError);
+			// Continue without NVC knowledge if retrieval fails
+		}
+
 		// Load existing NVC components from chat to avoid asking for them again
 		let existingFeelings: string[] = [];
 		let existingNeeds: string[] = [];
@@ -382,6 +412,11 @@ bullshift.post('/send', async (c: Context) => {
 		} else if (memoryContext) {
 			// For other paths, inject memories subtly in system prompt
 			systemInstruction += `\n\n**KONTEXTWISSEN ÜBER DEN NUTZER:**\n${memoryContext}\nNutze dieses Wissen subtil und natürlich, um deine Antworten zu personalisieren. Erwähne Erinnerungen nur, wenn sie für die aktuelle Situation relevant sind.`;
+		}
+
+		// Append NVC knowledge context to system instruction
+		if (nvcKnowledgeContext) {
+			systemInstruction += nvcKnowledgeContext;
 		}
 
 		console.log('📝 SYSTEM PROMPT:');
@@ -524,7 +559,7 @@ bullshift.post('/send', async (c: Context) => {
 				.where(eq(chatsTable.id, chatId));
 		}
 
-		// Return AI response with updated history, memories, and path switch info
+		// Return AI response with updated history, memories, NVC knowledge, and path switch info
 		return c.json({
 			response: aiResponse,
 			timestamp: Date.now(),
@@ -534,7 +569,9 @@ bullshift.post('/send', async (c: Context) => {
 			pathSwitchReason: pathSwitchAnalysis?.reason,
 			activePath: activePath,
 			memoriesUsed: relevantMemories.length,
-			memories: relevantMemories // Include the memories that were used
+			memories: relevantMemories, // Include the memories that were used
+			nvcKnowledgeUsed: relevantNVCKnowledge.length,
+			nvcKnowledge: relevantNVCKnowledge // Include the NVC knowledge that was used
 		});
 
 	} catch (error) {

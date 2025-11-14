@@ -14,6 +14,7 @@ import {
 	user as userTable
 } from '../../drizzle/schema.js';
 import { decryptChatHistory, type HistoryEntry } from './encryption.js';
+import { searchNVCKnowledge, type NVCKnowledgeEntry } from './nvc-knowledge.js';
 
 const db = drizzle(process.env.DATABASE_URL!);
 
@@ -1295,5 +1296,138 @@ ${concatenatedHistory}
 	} catch (error) {
 		console.error('❌ Error in extractMemories:', error);
 		throw error;
+	}
+}
+
+// Type definitions for NVC knowledge retrieval
+export interface NVCKnowledgeRetrievalResult {
+	knowledgeEntries: Array<NVCKnowledgeEntry & { similarity: number }>;
+	searchQuery: string;
+	extractedConcepts: string[];
+}
+
+/**
+ * Retrieve relevant NVC knowledge based on a chat message
+ * Uses AI to extract key concepts from the message, then searches the NVC knowledge base
+ */
+export async function retrieveNVCKnowledge(
+	message: string,
+	locale: string = 'de',
+	options: {
+		limit?: number;
+		minSimilarity?: number;
+		category?: string;
+		tags?: string[];
+	} = {}
+): Promise<NVCKnowledgeRetrievalResult> {
+	console.log('📚 Retrieving NVC knowledge for message:', message.substring(0, 100) + '...');
+
+	try {
+		const ai = getAiClient();
+		const isGerman = (locale || '').toLowerCase().startsWith('de');
+		const language = isGerman ? 'de' : 'en';
+
+		// Step 1: Use AI to extract key concepts and create an optimized search query
+		const systemInstruction = isGerman
+			? `Du bist ein Experte für Gewaltfreie Kommunikation (GFK) und analysierst Nachrichten, um relevante GFK-Konzepte zu identifizieren.
+
+Deine Aufgabe:
+- Analysiere die Nachricht und identifiziere die wichtigsten GFK-relevanten Konzepte
+- Erstelle eine präzise Suchanfrage für die GFK-Wissensdatenbank
+- Extrahiere Schlüsselbegriffe wie: Gefühle, Bedürfnisse, Beobachtungen, Bitten, Konflikte, Empathie, etc.
+
+Antworte mit einem JSON-Objekt im Format:
+{
+  "searchQuery": "Eine präzise Suchanfrage für die GFK-Wissensdatenbank",
+  "extractedConcepts": ["Konzept1", "Konzept2", "Konzept3"]
+}`
+			: `You are an expert in Nonviolent Communication (NVC) and analyze messages to identify relevant NVC concepts.
+
+Your task:
+- Analyze the message and identify the most important NVC-relevant concepts
+- Create a precise search query for the NVC knowledge base
+- Extract key terms like: feelings, needs, observations, requests, conflicts, empathy, etc.
+
+Respond with a JSON object in the format:
+{
+  "searchQuery": "A precise search query for the NVC knowledge base",
+  "extractedConcepts": ["concept1", "concept2", "concept3"]
+}`;
+
+		const conceptExtractionSchema = {
+			type: Type.OBJECT,
+			properties: {
+				searchQuery: {
+					type: Type.STRING,
+					description: 'A precise search query optimized for semantic search in the NVC knowledge base'
+				},
+				extractedConcepts: {
+					type: Type.ARRAY,
+					items: { type: Type.STRING },
+					description: 'List of key NVC concepts extracted from the message'
+				}
+			},
+			required: ['searchQuery', 'extractedConcepts']
+		};
+
+		const chat_session = ai.chats.create({
+			model: 'gemini-2.0-flash-lite',
+			config: {
+				temperature: 0.3,
+				maxOutputTokens: 512,
+				responseMimeType: 'application/json',
+				responseSchema: conceptExtractionSchema,
+				systemInstruction
+			}
+		});
+
+		const conceptResult = await chat_session.sendMessage({
+			message: isGerman
+				? `Analysiere diese Nachricht und extrahiere GFK-relevante Konzepte:\n\n"${message}"`
+				: `Analyze this message and extract NVC-relevant concepts:\n\n"${message}"`
+		});
+
+		// Parse concept extraction result
+		let searchQuery: string = message;
+		let extractedConcepts: string[] = [];
+
+		try {
+			const responseText = conceptResult.text || '{}';
+			const cleanedText = responseText.replace(/```json\n?/g, '').replace(/```\n?/g, '');
+			const parsed = JSON.parse(cleanedText);
+			searchQuery = parsed.searchQuery || message;
+			extractedConcepts = Array.isArray(parsed.extractedConcepts) ? parsed.extractedConcepts : [];
+		} catch (parseError) {
+			console.warn('⚠️ Failed to parse concept extraction, using original message as search query');
+			searchQuery = message;
+		}
+
+		console.log('🔍 Extracted search query:', searchQuery);
+		console.log('📋 Extracted concepts:', extractedConcepts);
+
+		// Step 2: Search the NVC knowledge base using the optimized query
+		const knowledgeEntries = await searchNVCKnowledge(searchQuery, {
+			language: language as 'de' | 'en',
+			limit: options.limit || 5,
+			minSimilarity: options.minSimilarity || 0.7,
+			category: options.category,
+			tags: options.tags
+		});
+
+		console.log(`✅ Found ${knowledgeEntries.length} relevant NVC knowledge entries`);
+
+		return {
+			knowledgeEntries,
+			searchQuery,
+			extractedConcepts
+		};
+	} catch (error) {
+		console.error('❌ Error retrieving NVC knowledge:', error);
+		// Return empty result on error
+		return {
+			knowledgeEntries: [],
+			searchQuery: message,
+			extractedConcepts: []
+		};
 	}
 }

@@ -1,0 +1,12 @@
+{
+  "workbench.colorCustomizations": {
+    "activityBar.background": "#721c07",
+    "activityBar.foreground": "#ffe0d7",
+    "titleBar.activeBackground": "#721c07",
+    "titleBar.activeForeground": "#ffe0d7"
+  },
+  "i18n-ally.localesPaths": [
+    "src/locales"
+  ],
+  "i18n-ally.keystyle": "nested"
+}

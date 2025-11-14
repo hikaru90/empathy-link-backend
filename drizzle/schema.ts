@@ -483,3 +483,27 @@ export const blindSpots = pgTable("blind_spots", {
 		}).onDelete("cascade"),
 	index("blind_spots_user_idx").using("btree", table.userId.asc().nullsLast().op("text_ops")),
 ]);
+
+export const nvcKnowledge = pgTable("nvc_knowledge", {
+	id: uuid().defaultRandom().primaryKey().notNull(),
+	knowledgeId: uuid("knowledge_id"), // Links DE/EN versions together
+	language: text().notNull(), // 'de' | 'en'
+	title: text().notNull(),
+	content: text().notNull(),
+	embedding: vector({ dimensions: 768 }),
+	category: text().notNull(), // e.g., "principles", "examples", "techniques"
+	subcategory: text(), // optional, e.g., "observation", "feelings", "needs"
+	source: text(), // e.g., "Marshall Rosenberg", "NVC Foundation"
+	tags: text().array(), // language-agnostic tags
+	priority: integer().default(3).notNull(), // 1-5 for relevance ranking
+	isActive: boolean("is_active").default(true).notNull(), // for soft deletion/archiving
+	createdBy: text("created_by"), // user_id, nullable for system entries
+	created: timestamp({ mode: 'string' }).defaultNow().notNull(),
+	updated: timestamp({ mode: 'string' }).defaultNow().notNull(),
+}, (table) => [
+	index("nvc_knowledge_embedding_idx").using("hnsw", table.embedding.asc().nullsLast().op("vector_cosine_ops")),
+	index("nvc_knowledge_category_idx").using("btree", table.category.asc().nullsLast().op("text_ops")),
+	index("nvc_knowledge_language_idx").using("btree", table.language.asc().nullsLast().op("text_ops")),
+	index("nvc_knowledge_knowledge_id_idx").using("btree", table.knowledgeId.asc().nullsLast().op("uuid_ops")),
+	index("nvc_knowledge_is_active_idx").using("btree", table.isActive.asc().nullsLast().op("bool_ops")),
+]);
