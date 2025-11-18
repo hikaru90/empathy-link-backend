@@ -85,6 +85,13 @@
       "when": 1763054242656,
       "tag": "0011_flawless_starhawk",
       "breakpoints": true
+    },
+    {
+      "idx": 12,
+      "version": "7",
+      "when": 1763392845678,
+      "tag": "0012_large_quicksilver",
+      "breakpoints": true
     }
   ]
 }

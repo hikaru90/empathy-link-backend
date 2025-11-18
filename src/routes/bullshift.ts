@@ -6,8 +6,9 @@ import { chats as chatsTable, feelings as feelingsTable } from '../../drizzle/sc
 import { decryptChatHistory, encryptChatHistory, type HistoryEntry } from '../lib/encryption.js';
 import { getAiResponseWithRetry, analyzePathSwitchingIntent, type PathSwitchAnalysis } from '../lib/gemini.js';
 import { createPathMarker, getSystemPromptForPath, type PathState, CONVERSATION_PATHS } from '../lib/paths.js';
-import { analyzeChat, extractMemories, extractNVCFromMessage, retrieveNVCKnowledge } from '../lib/ai-tools.js';
-import { searchSimilarMemories, formatMemoriesForPrompt } from '../lib/memory.js';
+import { analyzeChat, extractMemories } from '../lib/ai-tools.js';
+import { formatMemoriesForPrompt } from '../lib/memory.js';
+import { getToolCalls, executeTools, formatToolResults } from '../lib/tool-caller.js';
 
 const db = drizzle(process.env.DATABASE_URL!);
 const bullshift = new Hono();
@@ -288,53 +289,121 @@ bullshift.post('/send', async (c: Context) => {
 			console.error('❌ Error analyzing path switching:', error);
 		}
 
-		// PROACTIVE MEMORY RETRIEVAL: Search for relevant memories based on user message
+		// TOOL CALLING: Use AI to decide which tools to call
+		let toolResults: any[] = [];
 		let memoryContext = '';
 		let relevantMemories: any[] = [];
-
-		try {
-			console.log('🧠 Proactively searching for relevant memories...');
-			relevantMemories = await searchSimilarMemories(message, user.id, 3);
-
-			if (relevantMemories.length > 0) {
-				memoryContext = formatMemoriesForPrompt(relevantMemories);
-				console.log(`✅ Found ${relevantMemories.length} relevant memories to inject into context`);
-			} else {
-				console.log('📭 No relevant memories found');
-			}
-		} catch (memoryError) {
-			console.error('⚠️ Memory search failed, continuing without memories:', memoryError);
-			// Continue without memories if search fails
-		}
-
-		// PROACTIVE NVC KNOWLEDGE RETRIEVAL: Search for relevant NVC knowledge based on user message
 		let nvcKnowledgeContext = '';
 		let relevantNVCKnowledge: any[] = [];
+		let nvcExtraction: { observation: string | null; feelings: string[]; needs: string[]; request: string | null } | null = null;
+		let pathSwitchAnalysisFromTool: PathSwitchAnalysis | null = null;
 
 		try {
-			console.log('📚 Proactively searching for relevant NVC knowledge...');
-			const nvcKnowledgeResult = await retrieveNVCKnowledge(message, 'de', {
-				limit: 3,
-				minSimilarity: 0.7
+			// Prepare recent conversation history for tool calling
+			const decryptedHistory = chatRecord[0].history ? JSON.parse(chatRecord[0].history) : [];
+			const fullHistory = decryptChatHistory(decryptedHistory);
+
+			const recentHistory = fullHistory.slice(-6)
+				.filter((h: any) => h.parts && h.parts.length > 0 && !h.pathMarker && !h.hidden)
+				.map((h: any) => ({
+					role: h.role === 'model' ? 'assistant' : h.role as string,
+					content: h.parts[0]?.text || ''
+				}))
+				.filter((m: any) => (m.role === 'user' || m.role === 'assistant') && m.content.trim().length > 0);
+
+			// Get tool calls from AI
+			const toolCallResponse = await getToolCalls({
+				message,
+				history: recentHistory,
+				context: {
+					userId: user.id,
+					currentPath: activePath,
+					locale: 'de'
+				}
 			});
 
-			relevantNVCKnowledge = nvcKnowledgeResult.knowledgeEntries;
+			console.log('🔧 Tool call reasoning:', toolCallResponse.reasoning);
+			console.log(`🔧 AI requested ${toolCallResponse.toolCalls.length} tool(s)`);
 
-			if (relevantNVCKnowledge.length > 0) {
-				// Format NVC knowledge entries for prompt injection
-				const knowledgeEntries = relevantNVCKnowledge.map((entry, idx) => {
-					return `**${entry.title}** (Ähnlichkeit: ${(entry.similarity * 100).toFixed(0)}%)\n${entry.content}${entry.source ? `\n_Quelle: ${entry.source}_` : ''}`;
-				}).join('\n\n');
+			// Execute tools
+			if (toolCallResponse.toolCalls.length > 0) {
+				toolResults = await executeTools(toolCallResponse.toolCalls, {
+					userId: user.id,
+					locale: 'de'
+				});
 
-				nvcKnowledgeContext = `\n\n**RELEVANTES GFK-WISSEN FÜR DIESE SITUATION:**\n${knowledgeEntries}\n\nNutze dieses Wissen, um dem Nutzer hilfreiche GFK-Perspektiven und -Konzepte anzubieten, wenn sie für die aktuelle Situation relevant sind. Integriere das Wissen natürlich und subtil in deine Antworten, ohne es aufzudrängen.`;
-				console.log(`✅ Found ${relevantNVCKnowledge.length} relevant NVC knowledge entries to inject into context`);
-				console.log('📋 Extracted concepts:', nvcKnowledgeResult.extractedConcepts);
+				// Process tool results
+				for (const result of toolResults) {
+					if (!result.success) {
+						console.warn(`⚠️ Tool ${result.tool} failed:`, result.error);
+						continue;
+					}
+
+					if (result.tool === 'search_memories') {
+						relevantMemories = result.result || [];
+						if (relevantMemories.length > 0) {
+							memoryContext = formatMemoriesForPrompt(relevantMemories);
+							console.log(`✅ Found ${relevantMemories.length} relevant memories`);
+						}
+					} else if (result.tool === 'retrieve_nvc_knowledge') {
+						relevantNVCKnowledge = result.result?.knowledgeEntries || [];
+						if (relevantNVCKnowledge.length > 0) {
+							const knowledgeEntries = relevantNVCKnowledge.map((entry: any) => {
+								return `**${entry.title}** (Ähnlichkeit: ${(entry.similarity * 100).toFixed(0)}%)\n${entry.content}${entry.source ? `\n_Quelle: ${entry.source}_` : ''}`;
+							}).join('\n\n');
+
+							nvcKnowledgeContext = `\n\n**RELEVANTES GFK-WISSEN FÜR DIESE SITUATION:**\n${knowledgeEntries}\n\nNutze dieses Wissen, um dem Nutzer hilfreiche GFK-Perspektiven und -Konzepte anzubieten, wenn sie für die aktuelle Situation relevant sind. Integriere das Wissen natürlich und subtil in deine Antworten, ohne es aufzudrängen.`;
+							console.log(`✅ Found ${relevantNVCKnowledge.length} relevant NVC knowledge entries`);
+						}
+					} else if (result.tool === 'extract_nvc_components') {
+						nvcExtraction = result.result;
+						console.log('✅ NVC extraction completed:', {
+							observation: nvcExtraction?.observation ? 'present' : 'none',
+							feelings: nvcExtraction?.feelings?.length || 0,
+							needs: nvcExtraction?.needs?.length || 0,
+							request: nvcExtraction?.request ? 'present' : 'none'
+						});
+					} else if (result.tool === 'analyze_path_switch') {
+						pathSwitchAnalysisFromTool = result.result;
+						// Use tool-based path analysis if we didn't already do path switching
+						if (!pathSwitched && pathSwitchAnalysisFromTool) {
+							pathSwitchAnalysis = pathSwitchAnalysisFromTool;
+							console.log('🔍 Path analysis from tool:', pathSwitchAnalysis);
+							
+							// Apply path switch if needed
+							if (pathSwitchAnalysis.shouldSwitch &&
+								pathSwitchAnalysis.confidence >= 70 &&
+								pathSwitchAnalysis.suggestedPath &&
+								pathSwitchAnalysis.suggestedPath !== activePath) {
+								
+								const nextPath = pathSwitchAnalysis.suggestedPath;
+								if (CONVERSATION_PATHS[nextPath]) {
+									const newPathState: PathState = {
+										activePath: nextPath,
+										pathHistory: [...pathState.pathHistory, nextPath],
+										startedAt: pathState.startedAt,
+										lastSwitch: Date.now()
+									};
+
+									await db.update(chatsTable)
+										.set({ pathState: JSON.stringify(newPathState) })
+										.where(eq(chatsTable.id, chatId));
+
+									pathSwitched = true;
+									newPathId = nextPath;
+									activePath = nextPath;
+									console.log(`✅ Path switched to ${nextPath} (from tool)`);
+								}
+							}
+						}
+					}
+				}
 			} else {
-				console.log('📭 No relevant NVC knowledge found');
+				console.log('📭 No tools requested by AI');
 			}
-		} catch (nvcKnowledgeError) {
-			console.error('⚠️ NVC knowledge retrieval failed, continuing without knowledge:', nvcKnowledgeError);
-			// Continue without NVC knowledge if retrieval fails
+		} catch (toolError) {
+			console.error('⚠️ Tool calling failed, continuing without tools:', toolError);
+			// Continue without tools if calling fails
 		}
 
 		// Load existing NVC components from chat to avoid asking for them again
@@ -400,13 +469,8 @@ bullshift.post('/send', async (c: Context) => {
 		// For memory path specifically, inject memory context
 		if (activePath === 'memory') {
 			if (!memoryContext) {
-				// If no memories found, search more broadly
-				try {
-					const allMemories = await searchSimilarMemories('', user.id, 10);
-					memoryContext = formatMemoriesForPrompt(allMemories);
-				} catch (e) {
-					memoryContext = '- Keine Erinnerungen gefunden';
-				}
+				// If no memories found from tools, try to get some anyway
+				memoryContext = '- Keine Erinnerungen gefunden';
 			}
 			systemInstruction = getSystemPromptForPath(activePath, user, memoryContext);
 		} else if (memoryContext) {
@@ -419,26 +483,16 @@ bullshift.post('/send', async (c: Context) => {
 			systemInstruction += nvcKnowledgeContext;
 		}
 
+		// Add tool results context to system instruction
+		if (toolResults.length > 0) {
+			const toolResultsText = formatToolResults(toolResults);
+			systemInstruction += `\n\n**TOOL ERGEBNISSE:**\n${toolResultsText}\n\nNutze diese Informationen, um deine Antwort zu kontextualisieren.`;
+		}
+
 		console.log('📝 SYSTEM PROMPT:');
 		console.log('='.repeat(80));
 		console.log(systemInstruction);
 		console.log('='.repeat(80));
-
-		// Extract NVC components from user message
-		let nvcExtraction: { observation: string | null; feelings: string[]; needs: string[]; request: string | null } | null = null;
-		try {
-			console.log('🔍 Extracting NVC components from user message...');
-			nvcExtraction = await extractNVCFromMessage(message, 'de');
-			console.log('✅ NVC extraction completed:', {
-				observation: nvcExtraction.observation ? 'present' : 'none',
-				feelings: nvcExtraction.feelings.length,
-				needs: nvcExtraction.needs.length,
-				request: nvcExtraction.request ? 'present' : 'none'
-			});
-		} catch (nvcError) {
-			console.error('⚠️ NVC extraction failed, continuing without extraction:', nvcError);
-			// Continue without NVC extraction if it fails
-		}
 
 		// Add user message to history
 		const userMessage: HistoryEntry = {

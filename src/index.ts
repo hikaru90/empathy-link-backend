@@ -19,6 +19,7 @@ import streaks from './routes/streaks.js';
 import analyses from './routes/analyses.js';
 import memories from './routes/memories.js';
 import nvcKnowledge from './routes/nvc-knowledge.js';
+import learn from './routes/learn.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -29,13 +30,16 @@ app.use('/*', cors({
   origin: [
     'http://localhost:8081',
     'http://localhost:5173', // SvelteKit dev server
+    'http://localhost:4173', // Vite dev server
     'http://192.168.0.230:8081', // Local network access for mobile devices
     /^http:\/\/192\.168\.\d+\.\d+:8081$/, // Any local network IP
   ],
   credentials: true,
 }))
 
-app.on(["POST", "GET"], "/api/auth/**", (c) => auth.handler(c.req.raw));
+app.on(["POST", "GET", "OPTIONS"], "/api/auth/*", (c) => {
+	return auth.handler(c.req.raw);
+});
 
 // Auth middleware - add user to context
 app.use('/api/*', async (c, next) => {
@@ -59,9 +63,10 @@ app.route('/api/streaks', streaks);
 app.route('/api/analyses', analyses);
 app.route('/api/memories', memories);
 app.route('/api/nvc-knowledge', nvcKnowledge);
+app.route('/api/learn', learn);
 
 // Serve static files from dashboard directory (after API routes)
-const staticPath = join(__dirname, '../dashboard');
+const staticPath = join(__dirname, '../dashboard/dist');
 
 // Serve static assets (JS, CSS, images, etc.)
 app.use('/*', async (c, next) => {
@@ -85,12 +90,12 @@ app.get('*', async (c) => {
 		return c.notFound();
 	}
 	
-		try {
-			const indexHtml = readFileSync(join(staticPath, 'index.html'), 'utf-8');
-			return c.html(indexHtml);
-		} catch {
-			return c.text('Hello Hono! Dashboard files not found.');
-		}
+	try {
+		const indexHtml = readFileSync(join(staticPath, 'index.html'), 'utf-8');
+		return c.html(indexHtml);
+	} catch {
+		return c.text('Hello Hono! Dashboard files not found.');
+	}
 });
 
 serve({

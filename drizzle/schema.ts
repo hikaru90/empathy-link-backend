@@ -1,4 +1,4 @@
-import { boolean, foreignKey, index, integer, pgTable, real, text, timestamp, unique, uuid, vector } from "drizzle-orm/pg-core";
+import { boolean, foreignKey, index, integer, jsonb, pgTable, real, text, timestamp, unique, uuid, vector } from "drizzle-orm/pg-core";
 
 
 
@@ -506,4 +506,70 @@ export const nvcKnowledge = pgTable("nvc_knowledge", {
 	index("nvc_knowledge_language_idx").using("btree", table.language.asc().nullsLast().op("text_ops")),
 	index("nvc_knowledge_knowledge_id_idx").using("btree", table.knowledgeId.asc().nullsLast().op("uuid_ops")),
 	index("nvc_knowledge_is_active_idx").using("btree", table.isActive.asc().nullsLast().op("bool_ops")),
+]);
+
+export const learnCategories = pgTable("learn_categories", {
+	id: uuid().defaultRandom().primaryKey().notNull(),
+	slug: text().notNull(),
+	nameDE: text("name_de").notNull(),
+	nameEN: text("name_en"),
+	descriptionDE: text("description_de"),
+	descriptionEN: text("description_en"),
+	color: text(),
+	icon: text(),
+	sortOrder: integer("sort_order").default(0).notNull(),
+	isActive: boolean("is_active").default(true).notNull(),
+	created: timestamp({ mode: 'string' }).defaultNow().notNull(),
+	updated: timestamp({ mode: 'string' }).defaultNow().notNull(),
+}, (table) => [
+	unique("learn_categories_slug_unique").on(table.slug),
+	index("learn_categories_order_idx").using("btree", table.sortOrder.asc().nullsLast().op("int4_ops")),
+]);
+
+export const learnTopics = pgTable("learn_topics", {
+	id: uuid().defaultRandom().primaryKey().notNull(),
+	slug: text().notNull(),
+	categoryId: uuid("category_id").references(() => learnCategories.id, { onDelete: "set null" }),
+	order: integer("sort_order").default(0).notNull(),
+	difficulty: text(),
+	level: text(),
+	estimatedMinutes: integer("estimated_minutes"),
+	summaryDE: text("summary_de"),
+	summaryEN: text("summary_en"),
+	coverImage: text("cover_image"),
+	currentVersionId: uuid("current_version_id"),
+	isActive: boolean("is_active").default(true).notNull(),
+	isFeatured: boolean("is_featured").default(false).notNull(),
+	tags: text(),
+	created: timestamp({ mode: 'string' }).defaultNow().notNull(),
+	updated: timestamp({ mode: 'string' }).defaultNow().notNull(),
+}, (table) => [
+	unique("learn_topics_slug_unique").on(table.slug),
+	index("learn_topics_category_idx").using("btree", table.categoryId.asc().nullsLast().op("uuid_ops")),
+	index("learn_topics_order_idx").using("btree", table.order.asc().nullsLast().op("int4_ops")),
+]);
+
+export const learnTopicVersions = pgTable("learn_topic_versions", {
+	id: uuid().defaultRandom().primaryKey().notNull(),
+	topicId: uuid("topic_id").notNull().references(() => learnTopics.id, { onDelete: "cascade" }),
+	categoryId: uuid("category_id").references(() => learnCategories.id, { onDelete: "set null" }),
+	versionLabel: text("version_label"),
+	titleDE: text("title_de").notNull(),
+	titleEN: text("title_en"),
+	descriptionDE: text("description_de"),
+	descriptionEN: text("description_en"),
+	language: text().default('de').notNull(),
+	image: text(),
+	content: jsonb("content").$type<any>(),
+	status: text().default('draft').notNull(),
+	isPublished: boolean("is_published").default(false).notNull(),
+	publishedAt: timestamp("published_at", { mode: 'string' }),
+	createdBy: text("created_by"),
+	notes: text(),
+	metadata: jsonb("metadata").$type<any>(),
+	created: timestamp({ mode: 'string' }).defaultNow().notNull(),
+	updated: timestamp({ mode: 'string' }).defaultNow().notNull(),
+}, (table) => [
+	index("learn_topic_versions_topic_idx").using("btree", table.topicId.asc().nullsLast().op("uuid_ops")),
+	index("learn_topic_versions_category_idx").using("btree", table.categoryId.asc().nullsLast().op("uuid_ops")),
 ]);
