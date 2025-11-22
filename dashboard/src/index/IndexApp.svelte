@@ -202,7 +202,6 @@
 			</div>
 			<nav class="flex gap-4 text-sm">
 				<a href="/" class="text-gray-900 font-semibold">Knowledge Base</a>
-				<a href="/learn.html" class="text-blue-600 hover:underline">Learn CMS</a>
 			</nav>
 		</div>
 	</header>
