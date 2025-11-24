@@ -147,52 +147,49 @@ learn.get('/sessions/by-id/:id', async (c) => {
   });
 });
 
-// Get or create a learning session for a topic
-learn.get('/sessions/:topicId', async (c) => {
-  const user = c.get('user');
-  if (!user) {
-    return c.json({ error: 'Unauthorized' }, 401);
+// Fetch a learning session by user and topic
+learn.get('/sessions', async (c) => {
+  const userId = c.req.query('userId');
+  const topicId = c.req.query('topicId');
+
+  if (!userId || !topicId) {
+    return c.json({ error: 'userId and topicId are required' }, 400);
   }
 
-  const { topicId } = c.req.param();
-  const topicVersionId = c.req.query('topicVersionId');
-
-  if (!topicVersionId) {
-    return c.json({ error: 'topicVersionId query parameter is required' }, 400);
-  }
-
-  // Check for existing incomplete session
-  const existingSessions = await db
+  const [session] = await db
     .select()
     .from(learnSessions)
-    .where(
-      and(
-        eq(learnSessions.userId, user.id),
-        eq(learnSessions.topicId, topicId),
-        eq(learnSessions.completed, false)
-      )
-    )
+    .where(and(eq(learnSessions.userId, userId), eq(learnSessions.topicId, topicId)))
     .orderBy(desc(learnSessions.created))
     .limit(1);
 
-  if (existingSessions.length > 0) {
-    const session = existingSessions[0];
-    // Parse JSON fields
-    return c.json({
-      session: {
-        ...session,
-        responses: session.responses ? JSON.parse(session.responses) : [],
-        feedback: session.feedback ? JSON.parse(session.feedback) : null
-      }
-    });
+  if (!session) {
+    return c.json({ error: 'Session not found' }, 404);
   }
 
-  // Create new session
+  return c.json({
+    session: {
+      ...session,
+      responses: session.responses ? JSON.parse(session.responses) : [],
+      feedback: session.feedback ? JSON.parse(session.feedback) : null
+    }
+  });
+});
+
+// Basic create endpoint
+learn.post('/sessions', async (c) => {
+  const body = await c.req.json().catch(() => ({}));
+  const { userId, topicId, topicVersionId } = body;
+
+  if (!userId || !topicId || !topicVersionId) {
+    return c.json({ error: 'userId, topicId, and topicVersionId are required' }, 400);
+  }
+
   const [newSession] = await db
     .insert(learnSessions)
     .values({
       id: crypto.randomUUID(),
-      userId: user.id,
+      userId,
       topicId,
       topicVersionId,
       currentPage: 0,
