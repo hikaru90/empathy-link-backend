@@ -105,9 +105,9 @@ analysesRouter.get('/:id', async (c: Context) => {
       console.error('Failed to parse needs:', e);
     }
 
-    // Fetch associated chat history if chatId exists
-    let chatHistory = [];
-    if (analysis.chatId) {
+	// Fetch associated chat history if chatId exists
+	let chatHistory: any[] = [];
+	if (analysis.chatId) {
       try {
         const chatRecord = await db
           .select()

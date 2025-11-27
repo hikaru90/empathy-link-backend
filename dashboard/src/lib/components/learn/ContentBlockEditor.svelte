@@ -45,6 +45,9 @@ let isCollapsed = true;
 		>
 			{#if onDragStart}
 				<div
+					role="button"
+					aria-label="Drag to reorder"
+					tabindex="0"
 					class="cursor-grab p-1 text-gray-400"
 					draggable="true"
 					on:dragstart={onDragStart}
@@ -77,8 +80,9 @@ let isCollapsed = true;
 		<div class="p-4 space-y-3">
 			{#if block.type === 'text'}
 				<div>
-					<label class="block text-xs font-medium mb-1">Content</label>
+					<label for="block-{blockIndex}-content" class="block text-xs font-medium mb-1">Content</label>
 					<textarea
+						id="block-{blockIndex}-content"
 						value={block.content || ''}
 						on:input={(e) => handleInput('content', e)}
 						rows="4"
@@ -86,8 +90,9 @@ let isCollapsed = true;
 					></textarea>
 				</div>
 				<div>
-					<label class="block text-xs font-medium mb-1">CTA Text</label>
+					<label for="block-{blockIndex}-cta-text" class="block text-xs font-medium mb-1">CTA Text</label>
 					<input
+						id="block-{blockIndex}-cta-text"
 						value={block.ctaText || ''}
 						on:input={(e) => handleInput('ctaText', e)}
 						class="w-full border px-3 py-2 rounded text-sm"
@@ -95,8 +100,9 @@ let isCollapsed = true;
 				</div>
 			{:else if block.type === 'breathe'}
 				<div>
-					<label class="block text-xs font-medium mb-1">Duration (seconds)</label>
+					<label for="block-{blockIndex}-duration" class="block text-xs font-medium mb-1">Duration (seconds)</label>
 					<input
+						id="block-{blockIndex}-duration"
 						type="number"
 						value={block.duration || 60}
 						on:input={(e) => handleNumberInput('duration', e)}
@@ -105,24 +111,27 @@ let isCollapsed = true;
 				</div>
 			{:else if block.type === 'aiQuestion'}
 				<div>
-					<label class="block text-xs font-medium mb-1">Question</label>
+					<label for="block-{blockIndex}-question" class="block text-xs font-medium mb-1">Question</label>
 					<input
+						id="block-{blockIndex}-question"
 						value={block.question || ''}
 						on:input={(e) => handleInput('question', e)}
 						class="w-full border px-3 py-2 rounded text-sm"
 					/>
 				</div>
 				<div>
-					<label class="block text-xs font-medium mb-1">Placeholder</label>
+					<label for="block-{blockIndex}-placeholder" class="block text-xs font-medium mb-1">Placeholder</label>
 					<input
+						id="block-{blockIndex}-placeholder"
 						value={block.placeholder || ''}
 						on:input={(e) => handleInput('placeholder', e)}
 						class="w-full border px-3 py-2 rounded text-sm"
 					/>
 				</div>
 				<div>
-					<label class="block text-xs font-medium mb-1">System Prompt</label>
+					<label for="block-{blockIndex}-system-prompt" class="block text-xs font-medium mb-1">System Prompt</label>
 					<textarea
+						id="block-{blockIndex}-system-prompt"
 						value={block.systemPrompt || ''}
 						on:input={(e) => handleInput('systemPrompt', e)}
 						rows="4"
@@ -131,24 +140,27 @@ let isCollapsed = true;
 				</div>
 			{:else if block.type === 'audio'}
 				<div>
-					<label class="block text-xs font-medium mb-1">Audio URL</label>
+					<label for="block-{blockIndex}-audio-url" class="block text-xs font-medium mb-1">Audio URL</label>
 					<input
+						id="block-{blockIndex}-audio-url"
 						value={block.src || ''}
 						on:input={(e) => handleInput('src', e)}
 						class="w-full border px-3 py-2 rounded text-sm"
 					/>
 				</div>
 				<div>
-					<label class="block text-xs font-medium mb-1">Title</label>
+					<label for="block-{blockIndex}-audio-title" class="block text-xs font-medium mb-1">Title</label>
 					<input
+						id="block-{blockIndex}-audio-title"
 						value={block.title || ''}
 						on:input={(e) => handleInput('title', e)}
 						class="w-full border px-3 py-2 rounded text-sm"
 					/>
 				</div>
 				<div>
-					<label class="block text-xs font-medium mb-1">Content</label>
+					<label for="block-{blockIndex}-audio-content" class="block text-xs font-medium mb-1">Content</label>
 					<input
+						id="block-{blockIndex}-audio-content"
 						value={block.content || ''}
 						on:input={(e) => handleInput('content', e)}
 						class="w-full border px-3 py-2 rounded text-sm"
@@ -187,8 +199,9 @@ let isCollapsed = true;
 				<div class="text-sm text-gray-500 italic">Body map block (no configuration needed)</div>
 			{:else if block.type === 'feelingsDetective'}
 				<div>
-					<label class="block text-xs font-medium mb-1">Question</label>
+					<label for="block-{blockIndex}-feelings-question" class="block text-xs font-medium mb-1">Question</label>
 					<input
+						id="block-{blockIndex}-feelings-question"
 						value={block.question || ''}
 						on:input={(e) => handleInput('question', e)}
 						class="w-full border px-3 py-2 rounded text-sm"

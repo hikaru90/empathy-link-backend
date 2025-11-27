@@ -4,13 +4,14 @@
   "scripts": {
     "dev": "tsx watch src/index.ts",
     "build": "tsc",
-    "start": "node dist/index.js",
+    "start": "node dist/src/index.js",
     "drizzle:push": "npx drizzle-kit push",
     "drizzle:migrate": "npx drizzle-kit migrate",
     "drizzle:generate": "npx drizzle-kit generate",
     "dashboard:dev": "npm run dev --prefix dashboard",
     "dashboard:build": "npm run build --prefix dashboard",
-    "dashboard:check": "npm run check --prefix dashboard"
+    "dashboard:check": "npm run check --prefix dashboard",
+    "dashboard:start": "npm run start --prefix dashboard"
   },
   "dependencies": {
     "@google/genai": "^1.25.0",

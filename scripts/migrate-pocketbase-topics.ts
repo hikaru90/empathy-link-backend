@@ -116,6 +116,10 @@ async function migrateCategories(records: PocketBaseRecord[]) {
 		}
 
 		const slug = slugify(String(slugSource));
+		const sortOrderRaw = getField(record, 'sort_order', 'sortOrder', 'order');
+		const sortOrderValue: number | undefined = sortOrderRaw === null || sortOrderRaw === undefined 
+			? undefined 
+			: toNumber(sortOrderRaw, 0) ?? undefined;
 		const insertValues = {
 			slug,
 			nameDE: String(nameDE),
@@ -133,10 +137,7 @@ async function migrateCategories(records: PocketBaseRecord[]) {
 				null,
 			color: getField(record, 'color') ?? null,
 			icon: getField(record, 'icon') ?? null,
-			sortOrder: toNumber(
-				getField(record, 'sort_order', 'sortOrder', 'order'),
-				0
-			),
+			sortOrder: sortOrderValue,
 			isActive: toBoolean(getField(record, 'is_active', 'isActive'), true),
 			created: parseDate(record.created),
 			updated: parseDate(record.updated)
@@ -149,7 +150,7 @@ async function migrateCategories(records: PocketBaseRecord[]) {
 			descriptionEN: insertValues.descriptionEN,
 			color: insertValues.color,
 			icon: insertValues.icon,
-			sortOrder: insertValues.sortOrder,
+			sortOrder: sortOrderValue,
 			isActive: insertValues.isActive,
 			updated: insertValues.updated
 		};
@@ -204,13 +205,14 @@ async function migrateTopics(
 				? tagsRaw
 				: null;
 
+		const orderRaw = getField(record, 'order', 'sort_order', 'sortOrder');
+		const orderValue: number | undefined = orderRaw === null || orderRaw === undefined 
+			? undefined 
+			: toNumber(orderRaw, 0) ?? undefined;
 		const insertValues = {
 			slug: slugify(String(slugSource)),
 			categoryId,
-			order: toNumber(
-				getField(record, 'order', 'sort_order', 'sortOrder'),
-				0
-			),
+			order: orderValue,
 			difficulty: getField(record, 'difficulty') ?? null,
 			level: getField(record, 'level') ?? null,
 			estimatedMinutes: toNumber(
@@ -236,7 +238,7 @@ async function migrateTopics(
 
 		const updateValues = {
 			categoryId: insertValues.categoryId,
-			order: insertValues.order,
+			order: orderValue,
 			difficulty: insertValues.difficulty,
 			level: insertValues.level,
 			estimatedMinutes: insertValues.estimatedMinutes,

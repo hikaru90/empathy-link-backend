@@ -3,6 +3,7 @@
  */
 
 import { Hono } from 'hono';
+import type { Context } from 'hono';
 import {
 	searchSimilarMemories,
 	createMemory,
@@ -10,15 +11,16 @@ import {
 	deleteMemory,
 	formatMemoriesForPrompt
 } from '../lib/memory.js';
+import type { Env } from '../types/hono.js';
 
-const app = new Hono();
+const app = new Hono<Env>();
 
 /**
  * Search for similar memories
  * POST /api/memories/search
  * Body: { query: string, limit?: number }
  */
-app.post('/search', async (c) => {
+app.post('/search', async (c: Context<Env>) => {
 	try {
 		const user = c.get('user');
 		if (!user) {
@@ -49,7 +51,7 @@ app.post('/search', async (c) => {
  * POST /api/memories
  * Body: { summary: string, chatId?: string, confidence?: string }
  */
-app.post('/', async (c) => {
+app.post('/', async (c: Context<Env>) => {
 	try {
 		const user = c.get('user');
 		if (!user) {
@@ -79,7 +81,7 @@ app.post('/', async (c) => {
  * GET /api/memories
  * Query params: limit (default: 50)
  */
-app.get('/', async (c) => {
+app.get('/', async (c: Context<Env>) => {
 	try {
 		const user = c.get('user');
 		if (!user) {
@@ -103,7 +105,7 @@ app.get('/', async (c) => {
  * Delete a memory
  * DELETE /api/memories/:id
  */
-app.delete('/:id', async (c) => {
+app.delete('/:id', async (c: Context<Env>) => {
 	try {
 		const user = c.get('user');
 		if (!user) {

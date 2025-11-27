@@ -20,20 +20,28 @@ import analyses from './routes/analyses.js';
 import memories from './routes/memories.js';
 import nvcKnowledge from './routes/nvc-knowledge.js';
 import learn from './routes/learn.js';
+import type { Env } from './types/hono.js';
+import type { Context } from 'hono';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 
-const app = new Hono()
+const app = new Hono<Env>()
 
 app.use('/*', cors({
-  origin: [
-    'http://localhost:8081',
-    'http://localhost:5173', // SvelteKit dev server
-    'http://localhost:4173', // Vite dev server
-    'http://192.168.0.230:8081', // Local network access for mobile devices
-    /^http:\/\/192\.168\.\d+\.\d+:8081$/, // Any local network IP
-  ],
+  origin: (origin) => {
+    const allowedOrigins = [
+      'http://localhost:8081',
+      'http://localhost:5173', // SvelteKit dev server
+      'http://localhost:4173', // Vite dev server
+      'http://192.168.0.230:8081', // Local network access for mobile devices
+    ];
+    if (!origin) return null;
+    if (allowedOrigins.includes(origin)) return origin;
+    // Check if origin matches local network IP pattern
+    if (/^http:\/\/192\.168\.\d+\.\d+:8081$/.test(origin)) return origin;
+    return null;
+  },
   credentials: true,
 }))
 
@@ -42,7 +50,7 @@ app.on(["POST", "GET", "OPTIONS"], "/api/auth/*", (c) => {
 });
 
 // Auth middleware - add user to context
-app.use('/api/*', async (c, next) => {
+app.use('/api/*', async (c: Context<Env>, next) => {
   const session = await auth.api.getSession({ headers: c.req.raw.headers });
   if (session) {
     c.set('user', session.user);
@@ -66,7 +74,8 @@ app.route('/api/nvc-knowledge', nvcKnowledge);
 app.route('/api/learn', learn);
 
 // Serve static files from dashboard directory (after API routes)
-const staticPath = join(__dirname, '../dashboard/dist');
+// Use process.cwd() to get the project root, which works regardless of where the code is compiled
+const staticPath = join(process.cwd(), 'dashboard/dist');
 
 // Serve static assets (JS, CSS, images, etc.)
 app.use('/*', async (c, next) => {
@@ -93,8 +102,10 @@ app.get('*', async (c) => {
 	try {
 		const indexHtml = readFileSync(join(staticPath, 'index.html'), 'utf-8');
 		return c.html(indexHtml);
-	} catch {
-		return c.text('Hello Hono! Dashboard files not found.');
+	} catch (error) {
+		console.error('Failed to load dashboard index.html:', error);
+		console.error('Looking for dashboard at:', staticPath);
+		return c.text(`Hello Hono! Dashboard files not found at: ${staticPath}`);
 	}
 });
 

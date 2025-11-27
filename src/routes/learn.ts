@@ -1,10 +1,12 @@
 import { and, desc, eq } from 'drizzle-orm';
 import { Hono } from 'hono';
+import type { Context } from 'hono';
 import { learnSessions, learnTopicVersions, learnTopics } from '../../drizzle/schema.js';
 import { ensureAdmin } from '../lib/auth.js';
 import { db } from '../lib/db.js';
+import type { Env } from '../types/hono.js';
 
-const learn = new Hono();
+const learn = new Hono<Env>();
 
 /**
  * Topic Management Routes (Admin only)
@@ -96,7 +98,7 @@ learn.delete('/topic-versions/:versionId', async (c) => {
 
 // Get completion status for all topics
 // MOVED UP to avoid shadowing by :topicId
-learn.get('/sessions/completion-status', async (c) => {
+learn.get('/sessions/completion-status', async (c: Context<Env>) => {
   const user = c.get('user');
   if (!user) {
     return c.json({ error: 'Unauthorized' }, 401);
@@ -121,7 +123,7 @@ learn.get('/sessions/completion-status', async (c) => {
 });
 
 // Get a learning session by ID
-learn.get('/sessions/by-id/:id', async (c) => {
+learn.get('/sessions/by-id/:id', async (c: Context<Env>) => {
   const user = c.get('user');
   if (!user) {
     return c.json({ error: 'Unauthorized' }, 401);
@@ -208,7 +210,7 @@ learn.post('/sessions', async (c) => {
 });
 
 // Update learning session
-learn.patch('/sessions/:id', async (c) => {
+learn.patch('/sessions/:id', async (c: Context<Env>) => {
   const user = c.get('user');
   if (!user) {
     return c.json({ error: 'Unauthorized' }, 401);

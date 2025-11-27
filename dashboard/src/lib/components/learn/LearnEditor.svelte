@@ -303,38 +303,43 @@ let generalSettingsOpen = false;
 				{#if generalSettingsOpen}
 					<div class="border-t border-slate-100 p-4 space-y-4">
 						<div>
-							<label class="block text-sm font-medium mb-1">Title (DE)</label>
+							<label for="version-title-de" class="block text-sm font-medium mb-1">Title (DE)</label>
 							<input 
+								id="version-title-de"
 								bind:value={versionForm.titleDE} 
 								class="w-full border px-3 py-2 rounded-lg"
 							/>
 						</div>
 						<div>
-							<label class="block text-sm font-medium mb-1">Title (EN)</label>
+							<label for="version-title-en" class="block text-sm font-medium mb-1">Title (EN)</label>
 							<input 
+								id="version-title-en"
 								bind:value={versionForm.titleEN} 
 								class="w-full border px-3 py-2 rounded-lg"
 							/>
 						</div>
 						<div>
-							<label class="block text-sm font-medium mb-1">Description (DE)</label>
+							<label for="version-description-de" class="block text-sm font-medium mb-1">Description (DE)</label>
 							<textarea 
+								id="version-description-de"
 								bind:value={versionForm.descriptionDE} 
 								rows="3"
 								class="w-full border px-3 py-2 rounded-lg"
 							></textarea>
 						</div>
 						<div>
-							<label class="block text-sm font-medium mb-1">Description (EN)</label>
+							<label for="version-description-en" class="block text-sm font-medium mb-1">Description (EN)</label>
 							<textarea 
+								id="version-description-en"
 								bind:value={versionForm.descriptionEN} 
 								rows="3"
 								class="w-full border px-3 py-2 rounded-lg"
 							></textarea>
 						</div>
 						<div>
-							<label class="block text-sm font-medium mb-1">Image URL</label>
+							<label for="version-image" class="block text-sm font-medium mb-1">Image URL</label>
 							<input 
+								id="version-image"
 								bind:value={versionForm.image} 
 								class="w-full border px-3 py-2 rounded-lg"
 							/>

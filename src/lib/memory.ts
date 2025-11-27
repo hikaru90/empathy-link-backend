@@ -69,7 +69,12 @@ export async function generateEmbedding(text: string): Promise<number[]> {
 			throw new Error('No embeddings returned from API');
 		}
 
-		return response.embeddings[0].values;
+		const values = response.embeddings[0].values;
+		if (!values || !Array.isArray(values)) {
+			throw new Error('No embedding values returned from API');
+		}
+
+		return values as number[];
 	} catch (error) {
 		console.error('Embedding generation failed:', error);
 		throw new Error('Failed to generate embedding');
@@ -153,10 +158,10 @@ export async function searchSimilarMemories(
 			LIMIT ${k}
 		`);
 
-		console.log(`📝 Found ${results.length} similar memories`);
-
 		// Update access_count and last_accessed for retrieved memories
 		const resultRows = Array.isArray(results) ? results : (results.rows || []);
+		
+		console.log(`📝 Found ${resultRows.length} similar memories`);
 		const memoryIds = resultRows.map((r: any) => r.id).filter((id: any) => id);
 
 		if (memoryIds.length > 0) {

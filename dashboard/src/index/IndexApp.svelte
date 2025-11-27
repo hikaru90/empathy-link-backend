@@ -236,32 +236,33 @@
 
 				<div class="grid md:grid-cols-2 gap-6">
 					<div class="space-y-4">
-						<label class="block text-sm text-gray-600">Language</label>
-						<select bind:value={form.language} class="w-full border px-3 py-2 rounded-lg">
+						<label for="form-language" class="block text-sm text-gray-600">Language</label>
+						<select id="form-language" bind:value={form.language} class="w-full border px-3 py-2 rounded-lg">
 							<option value="de">German (de)</option>
 							<option value="en">English (en)</option>
 						</select>
 
-						<label class="block text-sm text-gray-600">Title *</label>
-						<input bind:value={form.title} class="w-full border px-3 py-2 rounded-lg" placeholder="Title" />
+						<label for="form-title" class="block text-sm text-gray-600">Title *</label>
+						<input id="form-title" bind:value={form.title} class="w-full border px-3 py-2 rounded-lg" placeholder="Title" />
 
-						<label class="block text-sm text-gray-600">Category *</label>
-						<select bind:value={form.category} class="w-full border px-3 py-2 rounded-lg">
+						<label for="form-category" class="block text-sm text-gray-600">Category *</label>
+						<select id="form-category" bind:value={form.category} class="w-full border px-3 py-2 rounded-lg">
 							{#each categories as category}
 								<option value={category}>{category}</option>
 							{/each}
 						</select>
 
-						<label class="block text-sm text-gray-600">Subcategory</label>
-						<input bind:value={form.subcategory} class="w-full border px-3 py-2 rounded-lg" placeholder="Optional" />
+						<label for="form-subcategory" class="block text-sm text-gray-600">Subcategory</label>
+						<input id="form-subcategory" bind:value={form.subcategory} class="w-full border px-3 py-2 rounded-lg" placeholder="Optional" />
 
-						<label class="block text-sm text-gray-600">Source</label>
-						<input bind:value={form.source} class="w-full border px-3 py-2 rounded-lg" placeholder="Optional" />
+						<label for="form-source" class="block text-sm text-gray-600">Source</label>
+						<input id="form-source" bind:value={form.source} class="w-full border px-3 py-2 rounded-lg" placeholder="Optional" />
 					</div>
 
 					<div class="space-y-4">
-						<label class="block text-sm text-gray-600">Content *</label>
+						<label for="form-content" class="block text-sm text-gray-600">Content *</label>
 						<textarea
+							id="form-content"
 							bind:value={form.content}
 							class="w-full border px-3 py-2 rounded-lg h-48"
 							placeholder="Provide descriptive content..."
@@ -273,8 +274,9 @@
 							{/if}
 						</div>
 
-						<label class="block text-sm text-gray-600">Priority: {form.priority}</label>
+						<label for="form-priority" class="block text-sm text-gray-600">Priority: {form.priority}</label>
 						<input
+							id="form-priority"
 							type="range"
 							min="1"
 							max="5"
@@ -284,9 +286,10 @@
 						/>
 
 						<div>
-							<label class="block text-sm text-gray-600 mb-2">Tags</label>
+							<label for="form-tags" class="block text-sm text-gray-600 mb-2">Tags</label>
 							<div class="flex gap-2">
 								<input
+									id="form-tags"
 									bind:value={tagInput}
 									class="flex-1 border px-3 py-2 rounded-lg"
 									placeholder="Add tag"

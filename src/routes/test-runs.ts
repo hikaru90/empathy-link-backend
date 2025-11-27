@@ -36,8 +36,8 @@ testRuns.post('/', async (c: Context) => {
 		// Extract unique paths from detailed results if available
 		let uniquePathsUsed = testRunData.unique_paths_used || [];
 		if (testRunData.detailed_results && testRunData.detailed_results.length > 0) {
-			const pathsFromResults = testRunData.detailed_results.flatMap(result =>
-				result.pathResults ? result.pathResults.map(pr => pr.pathId) : []
+			const pathsFromResults = testRunData.detailed_results.flatMap((result: any) =>
+				result.pathResults ? result.pathResults.map((pr: any) => pr.pathId) : []
 			);
 			if (pathsFromResults.length > 0) {
 				uniquePathsUsed = [...new Set(pathsFromResults)];

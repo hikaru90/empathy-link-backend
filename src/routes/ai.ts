@@ -6,8 +6,11 @@ const ai = new Hono();
 
 // POST /api/ai/check-judgement - Check text for judgement
 ai.post('/check-judgement', async (c: Context) => {
+	let lang = 'de';
 	try {
-		const { text, lang } = await c.req.json();
+		const body = await c.req.json();
+		const { text } = body;
+		lang = body.lang || 'de';
 
 		console.log('text', text);
 		console.log('lang', lang);
