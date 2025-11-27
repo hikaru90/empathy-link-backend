@@ -35,6 +35,7 @@ app.use('/*', cors({
       'http://localhost:5173', // SvelteKit dev server
       'http://localhost:4173', // Vite dev server
       'http://192.168.0.230:8081', // Local network access for mobile devices
+      'https://expo.clustercluster.de', // Production frontend
     ];
     if (!origin) return null;
     if (allowedOrigins.includes(origin)) return origin;

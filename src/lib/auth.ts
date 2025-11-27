@@ -15,7 +15,10 @@ export const auth = betterAuth({
   emailAndPassword: {
     enabled: true,
   },
-  trustedOrigins: ['http://localhost:8081'],
+  trustedOrigins: [
+    'http://localhost:8081',
+    'https://expo.clustercluster.de', // Production frontend
+  ],
   user: {
     additionalFields: {
       role: {
