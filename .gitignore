@@ -5,3 +5,4 @@ static
 .env.local
 .DS_Store
 *.log
+docs

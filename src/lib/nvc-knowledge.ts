@@ -78,7 +78,7 @@ export async function generateNVCEmbedding(
 		const formattedText = `[NVC Knowledge ${language.toUpperCase()}] ${text}`;
 		
 		const response = await ai.models.embedContent({
-			model: 'text-embedding-004',
+			model: 'text-embedding-001',
 			contents: formattedText
 		});
 

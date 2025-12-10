@@ -46,8 +46,171 @@ app.use('/*', cors({
   credentials: true,
 }))
 
-app.on(["POST", "GET", "OPTIONS"], "/api/auth/*", (c) => {
-	return auth.handler(c.req.raw);
+/**
+ * Translate better-auth error messages to German
+ */
+function translateErrorMessage(message: string): string {
+	const messageLower = message.toLowerCase();
+	
+	// Email/Account errors
+	if (messageLower.includes('already exists') || 
+	    messageLower.includes('duplicate') ||
+	    messageLower.includes('unique constraint') ||
+	    (messageLower.includes('email') && (messageLower.includes('taken') || messageLower.includes('exists'))) ||
+	    messageLower.includes('user already exists')) {
+		return 'Diese E-Mail-Adresse ist bereits registriert. Bitte verwende eine andere E-Mail-Adresse.';
+	}
+	
+	if (messageLower.includes('invalid email') || messageLower.includes('email is invalid')) {
+		return 'Die E-Mail-Adresse ist ungültig. Bitte überprüfe deine Eingabe.';
+	}
+	
+	if (messageLower.includes('email not found') || messageLower.includes('user not found')) {
+		return 'Kein Konto mit dieser E-Mail-Adresse gefunden.';
+	}
+	
+	// Password errors
+	if (messageLower.includes('invalid password') || messageLower.includes('incorrect password')) {
+		return 'Das Passwort ist falsch. Bitte versuche es erneut.';
+	}
+	
+	if (messageLower.includes('password too short') || messageLower.includes('password must be')) {
+		return 'Das Passwort ist zu kurz. Bitte verwende mindestens 8 Zeichen.';
+	}
+	
+	if (messageLower.includes('password required')) {
+		return 'Ein Passwort ist erforderlich.';
+	}
+	
+	// Verification errors
+	if (messageLower.includes('email not verified') || messageLower.includes('email verification required')) {
+		return 'Deine E-Mail-Adresse wurde noch nicht verifiziert. Bitte überprüfe dein E-Mail-Postfach.';
+	}
+	
+	if (messageLower.includes('verification token') && (messageLower.includes('invalid') || messageLower.includes('expired'))) {
+		return 'Der Verifizierungslink ist ungültig oder abgelaufen. Bitte fordere einen neuen Link an.';
+	}
+	
+	// Session/Token errors
+	if (messageLower.includes('invalid session') || messageLower.includes('session expired')) {
+		return 'Deine Sitzung ist abgelaufen. Bitte melde dich erneut an.';
+	}
+	
+	if (messageLower.includes('unauthorized') || messageLower.includes('not authenticated')) {
+		return 'Du bist nicht angemeldet. Bitte melde dich an.';
+	}
+	
+	// Rate limiting
+	if (messageLower.includes('too many requests') || messageLower.includes('rate limit')) {
+		return 'Zu viele Anfragen. Bitte versuche es später erneut.';
+	}
+	
+	// Generic errors
+	if (messageLower.includes('bad request')) {
+		return 'Ungültige Anfrage. Bitte überprüfe deine Eingaben.';
+	}
+	
+	if (messageLower.includes('internal server error')) {
+		return 'Ein Serverfehler ist aufgetreten. Bitte versuche es später erneut.';
+	}
+	
+	// If no translation found, return original message
+	return message;
+}
+
+app.on(["POST", "GET", "OPTIONS"], "/api/auth/*", async (c) => {
+	try {
+		// Handle both Promise and direct Response returns
+		const handlerResult = auth.handler(c.req.raw);
+		const response = handlerResult instanceof Promise ? await handlerResult : handlerResult;
+		
+		// Transform error responses to match frontend expectations
+		if (response && response.status >= 400) {
+			const clonedResponse = response.clone();
+			try {
+				const errorData = await clonedResponse.json();
+				
+				// Check if error is already in the expected format
+				if (errorData?.error && typeof errorData.error === 'object' && 
+				    errorData.error.message && errorData.error.status) {
+					// Translate the message to German
+					const translatedMessage = translateErrorMessage(errorData.error.message);
+					return c.json({
+						error: {
+							message: translatedMessage,
+							status: errorData.error.status,
+							statusText: errorData.error.statusText || 'Error'
+						}
+					}, errorData.error.status);
+				}
+				
+				// Better-auth might return errors in different formats
+				// Transform to consistent format with 'error' field containing message, status, statusText
+				let errorMessage = 'Ein Fehler ist aufgetreten';
+				let statusCode = response.status;
+				let statusText = response.statusText || 'Error';
+				
+				// Extract error message from various possible formats
+				if (errorData?.error?.message) {
+					errorMessage = errorData.error.message;
+				} else if (errorData?.message) {
+					errorMessage = errorData.message;
+				} else if (errorData?.error && typeof errorData.error === 'string') {
+					errorMessage = errorData.error;
+				} else if (typeof errorData === 'string') {
+					errorMessage = errorData;
+				}
+				
+				// Translate error message to German
+				errorMessage = translateErrorMessage(errorMessage);
+				
+				// Set appropriate status text for common status codes
+				if (statusCode === 422) {
+					statusText = 'Unprocessable Entity';
+				} else if (statusCode === 401) {
+					statusText = 'Unauthorized';
+				} else if (statusCode === 403) {
+					statusText = 'Forbidden';
+				} else if (statusCode === 404) {
+					statusText = 'Not Found';
+				} else if (statusCode === 429) {
+					statusText = 'Too Many Requests';
+				} else if (statusCode === 500) {
+					statusText = 'Internal Server Error';
+				}
+				
+				// Return error in the format frontend expects: { error: { message, status, statusText } }
+				return c.json({ 
+					error: {
+						message: errorMessage,
+						status: statusCode,
+						statusText: statusText
+					}
+				}, statusCode);
+			} catch (parseError) {
+				// If response is not JSON, return error in expected format
+				return c.json({
+					error: {
+						message: 'Ein Fehler ist aufgetreten',
+						status: response.status,
+						statusText: response.statusText || 'Error'
+					}
+				}, response.status);
+			}
+		}
+		
+		return response;
+	} catch (error: any) {
+		// Fallback error handling
+		console.error('Auth handler error:', error);
+		return c.json({ 
+			error: {
+				message: translateErrorMessage(error?.message || 'Ein Fehler ist bei der Authentifizierung aufgetreten'),
+				status: 500,
+				statusText: 'Internal Server Error'
+			}
+		}, 500);
+	}
 });
 
 // Auth middleware - add user to context

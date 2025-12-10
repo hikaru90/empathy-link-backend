@@ -1240,7 +1240,7 @@ ${concatenatedHistory}
 				// Generate embedding using Gemini's correct API
 				const embeddingText = `${memory.key}: ${memory.value}`;
 				const response = await ai.models.embedContent({
-					model: 'text-embedding-004',
+					model: 'text-embedding-001',
 					contents: embeddingText
 				});
 

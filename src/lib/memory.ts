@@ -61,7 +61,7 @@ export async function generateEmbedding(text: string): Promise<number[]> {
 		const genai = getGenAIClient();
 
 		const response = await genai.models.embedContent({
-			model: 'text-embedding-004',
+			model: 'text-embedding-001',
 			contents: text,
 		});
 

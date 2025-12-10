@@ -313,7 +313,7 @@ GET    /api/nvc-knowledge/export              - Export to file
 - **Normalize**: Whitespace, formatting consistency
 
 ### Embedding Model
-- **Model**: `text-embedding-004` (768 dimensions)
+- **Model**: `text-embedding-001`
 - **Consistency**: Same model as memories for compatibility
 - **Batch processing**: For efficiency when populating
 
