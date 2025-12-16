@@ -185,10 +185,38 @@ export const auth = betterAuth({
   emailVerification: {
     sendVerificationEmail,
   },
-  trustedOrigins: [
-    'http://localhost:8081',
-    'https://expo.clustercluster.de', // Production frontend
-  ],
+  trustedOrigins: async (request) => {
+    const origin = request.headers.get('origin');
+    const staticOrigins = [
+      'http://localhost:8081',
+      'https://expo.clustercluster.de', // Production frontend
+    ];
+    
+    // In development, dynamically allow localhost and local network IPs on any port
+    if (process.env.NODE_ENV !== 'production' && origin) {
+      // Allow localhost on any port
+      if (/^http:\/\/localhost:\d+$/.test(origin)) {
+        return [...staticOrigins, origin];
+      }
+      // Allow any local network IP (192.168.x.x) on any port
+      if (/^http:\/\/192\.168\.\d+\.\d+:\d+$/.test(origin)) {
+        return [...staticOrigins, origin];
+      }
+    }
+    
+    // Return static origins for production or if origin doesn't match patterns
+    return staticOrigins;
+  },
+  advanced: {
+    // Configure cookies for development with IP addresses
+    // In development, allow cookies over HTTP (not just HTTPS)
+    defaultCookieAttributes: {
+      sameSite: 'lax',
+      secure: false, // Allow cookies over HTTP in development
+      httpOnly: true,
+      // Don't set domain - let browser handle it per origin
+    },
+  },
   user: {
     additionalFields: {
       role: {

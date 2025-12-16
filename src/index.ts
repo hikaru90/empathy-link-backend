@@ -1,27 +1,26 @@
-import { serve } from '@hono/node-server'
-import { serveStatic } from '@hono/node-server/serve-static'
-import { Hono } from 'hono'
-import { auth } from './lib/auth.js'
-import { cors } from "hono/cors";
+import { serve } from '@hono/node-server';
+import { serveStatic } from '@hono/node-server/serve-static';
 import { readFileSync } from 'fs';
-import { join } from 'path';
+import type { Context } from 'hono';
+import { Hono } from 'hono';
+import { cors } from "hono/cors";
+import { dirname, join } from 'path';
 import { fileURLToPath } from 'url';
-import { dirname } from 'path';
-import testRuns from './routes/test-runs.js';
-import messages from './routes/messages.js';
-import garden from './routes/garden.js';
-import reminders from './routes/reminders.js';
+import { auth } from './lib/auth.js';
 import ai from './routes/ai.js';
-import stats from './routes/stats.js';
+import analyses from './routes/analyses.js';
 import bullshift from './routes/bullshift.js';
 import data from './routes/data.js';
-import streaks from './routes/streaks.js';
-import analyses from './routes/analyses.js';
-import memories from './routes/memories.js';
-import nvcKnowledge from './routes/nvc-knowledge.js';
+import garden from './routes/garden.js';
 import learn from './routes/learn.js';
+import memories from './routes/memories.js';
+import messages from './routes/messages.js';
+import nvcKnowledge from './routes/nvc-knowledge.js';
+import reminders from './routes/reminders.js';
+import stats from './routes/stats.js';
+import streaks from './routes/streaks.js';
+import testRuns from './routes/test-runs.js';
 import type { Env } from './types/hono.js';
-import type { Context } from 'hono';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -39,8 +38,10 @@ app.use('/*', cors({
     ];
     if (!origin) return null;
     if (allowedOrigins.includes(origin)) return origin;
-    // Check if origin matches local network IP pattern
-    if (/^http:\/\/192\.168\.\d+\.\d+:8081$/.test(origin)) return origin;
+    // Check if origin matches localhost on any port
+    if (/^http:\/\/localhost:\d+$/.test(origin)) return origin;
+    // Check if origin matches local network IP pattern on any port
+    if (/^http:\/\/192\.168\.\d+\.\d+:\d+$/.test(origin)) return origin;
     return null;
   },
   credentials: true,
@@ -275,7 +276,9 @@ app.get('*', async (c) => {
 
 serve({
   fetch: app.fetch,
-  port: 4000
+  port: 4000,
+  hostname: '0.0.0.0' // Listen on all network interfaces, not just localhost
+  // hostname: 'localhost' // Listen on all network interfaces, not just localhost
 }, (info) => {
-  console.log(`Server is running on http://localhost:${info.port}`)
+  console.log(`Server is running on http://localhost:${info.port} and http://0.0.0.0:${info.port}`)
 })
