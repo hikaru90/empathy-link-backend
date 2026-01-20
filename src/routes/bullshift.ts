@@ -192,6 +192,10 @@ bullshift.post('/send', async (c: Context) => {
 		let pathSwitchAnalysis: PathSwitchAnalysis | null = null;
 		let pathSwitched = false;
 		let newPathId: string | null = null;
+		
+		// Initialize memory variables early so they can be set during path switch
+		let memoryContext = '';
+		let relevantMemories: any[] = [];
 
 		try {
 			// Prepare recent conversation history for analysis
@@ -280,6 +284,32 @@ bullshift.post('/send', async (c: Context) => {
 					newPathId = nextPath;
 					activePath = nextPath; // Update active path for the response
 					console.log(`✅ Path switched to ${nextPath}`);
+					
+					// Update pathState variable for later use
+					pathState.activePath = nextPath;
+					pathState.pathHistory = newPathState.pathHistory;
+					pathState.lastSwitch = Date.now();
+					
+					// If switched to memory path, fetch memories immediately
+					if (nextPath === 'memory') {
+						try {
+							console.log('🧠 Path switched to memory - fetching all memories immediately');
+							const { getUserMemories } = await import('../lib/memory.js');
+							const allMemories = await getUserMemories(user.id, 20);
+							if (allMemories.length > 0) {
+								// Set memoryContext early so it's available for system prompt
+								memoryContext = formatMemoriesForPrompt(allMemories);
+								relevantMemories = allMemories;
+								console.log(`✅ Fetched ${allMemories.length} memories immediately after path switch`);
+							} else {
+								memoryContext = '- Keine Erinnerungen gefunden';
+								console.log('⚠️ No memories found for user after path switch');
+							}
+						} catch (memoryError) {
+							console.error('❌ Error fetching memories immediately after path switch:', memoryError);
+							memoryContext = '- Fehler beim Abrufen der Erinnerungen';
+						}
+					}
 				}
 			} else if (pathSwitchAnalysis) {
 				console.log('❌ No path switch - AI decision:', pathSwitchAnalysis.reason);
@@ -291,12 +321,62 @@ bullshift.post('/send', async (c: Context) => {
 
 		// TOOL CALLING: Use AI to decide which tools to call
 		let toolResults: any[] = [];
-		let memoryContext = '';
-		let relevantMemories: any[] = [];
+		// memoryContext and relevantMemories are already declared above (may have been set during path switch)
 		let nvcKnowledgeContext = '';
 		let relevantNVCKnowledge: any[] = [];
 		let nvcExtraction: { observation: string | null; feelings: string[]; needs: string[]; request: string | null } | null = null;
 		let pathSwitchAnalysisFromTool: PathSwitchAnalysis | null = null;
+
+		// SPECIAL HANDLING FOR MEMORY PATH: Use semantic search if user asks specific question, otherwise get all
+		// This must happen AFTER path switching so we fetch memories if path switched to memory
+		// Only fetch if we haven't already fetched (from path switch above)
+		if (activePath === 'memory' && memoryContext === '') {
+			try {
+				console.log('🧠 Memory path active - checking if semantic search needed');
+				const { getUserMemories, searchSimilarMemories } = await import('../lib/memory.js');
+				
+				// If user message contains a question or specific query, use semantic search
+				const isSpecificQuery = message.trim().length > 0 && (
+					message.includes('?') || 
+					message.toLowerCase().includes('mag') || 
+					message.toLowerCase().includes('mag ich') ||
+					message.toLowerCase().includes('erinner') ||
+					message.toLowerCase().includes('weißt du')
+				);
+				
+				if (isSpecificQuery) {
+					console.log('🔍 Using semantic search for specific query:', message);
+					const searchedMemories = await searchSimilarMemories(message, user.id, 20);
+					relevantMemories = searchedMemories;
+					if (searchedMemories.length > 0) {
+						memoryContext = formatMemoriesForPrompt(searchedMemories);
+						console.log(`✅ Found ${searchedMemories.length} relevant memories via semantic search`);
+					} else {
+						// Fallback to all memories if semantic search finds nothing
+						const allMemories = await getUserMemories(user.id, 50);
+						relevantMemories = allMemories;
+						memoryContext = allMemories.length > 0 
+							? formatMemoriesForPrompt(allMemories)
+							: '- Keine Erinnerungen gefunden';
+						console.log(`⚠️ Semantic search found nothing, using ${allMemories.length} total memories`);
+					}
+				} else {
+					console.log('📋 Fetching all memories (no specific query)');
+					const allMemories = await getUserMemories(user.id, 50);
+					relevantMemories = allMemories;
+					if (allMemories.length > 0) {
+						memoryContext = formatMemoriesForPrompt(allMemories);
+						console.log(`✅ Fetched ${allMemories.length} memories for memory path`);
+					} else {
+						memoryContext = '- Keine Erinnerungen gefunden';
+						console.log('⚠️ No memories found for user');
+					}
+				}
+			} catch (memoryError) {
+				console.error('❌ Error fetching memories for memory path:', memoryError);
+				memoryContext = '- Fehler beim Abrufen der Erinnerungen';
+			}
+		}
 
 		try {
 			// Prepare recent conversation history for tool calling
@@ -311,88 +391,113 @@ bullshift.post('/send', async (c: Context) => {
 				}))
 				.filter((m: any) => (m.role === 'user' || m.role === 'assistant') && m.content.trim().length > 0);
 
-			// Get tool calls from AI
-			const toolCallResponse = await getToolCalls({
-				message,
-				history: recentHistory,
-				context: {
-					userId: user.id,
-					currentPath: activePath,
-					locale: 'de'
-				}
-			});
-
-			console.log('🔧 Tool call reasoning:', toolCallResponse.reasoning);
-			console.log(`🔧 AI requested ${toolCallResponse.toolCalls.length} tool(s)`);
-
-			// Execute tools
-			if (toolCallResponse.toolCalls.length > 0) {
-				toolResults = await executeTools(toolCallResponse.toolCalls, {
-					userId: user.id,
-					locale: 'de'
+			// Get tool calls from AI (skip if we're in memory path and already have memories)
+			if (activePath !== 'memory') {
+				const toolCallResponse = await getToolCalls({
+					message,
+					history: recentHistory,
+					context: {
+						userId: user.id,
+						currentPath: activePath,
+						locale: 'de'
+					}
 				});
 
-				// Process tool results
-				for (const result of toolResults) {
-					if (!result.success) {
-						console.warn(`⚠️ Tool ${result.tool} failed:`, result.error);
-						continue;
-					}
+				console.log('🔧 Tool call reasoning:', toolCallResponse.reasoning);
+				console.log(`🔧 AI requested ${toolCallResponse.toolCalls.length} tool(s)`);
 
-					if (result.tool === 'search_memories') {
-						relevantMemories = result.result || [];
-						if (relevantMemories.length > 0) {
-							memoryContext = formatMemoriesForPrompt(relevantMemories);
-							console.log(`✅ Found ${relevantMemories.length} relevant memories`);
-						}
-					} else if (result.tool === 'retrieve_nvc_knowledge') {
-						relevantNVCKnowledge = result.result?.knowledgeEntries || [];
-						if (relevantNVCKnowledge.length > 0) {
-							const knowledgeEntries = relevantNVCKnowledge.map((entry: any) => {
-								return `**${entry.title}** (Ähnlichkeit: ${(entry.similarity * 100).toFixed(0)}%)\n${entry.content}${entry.source ? `\n_Quelle: ${entry.source}_` : ''}`;
-							}).join('\n\n');
+				// Execute tools
+				if (toolCallResponse.toolCalls.length > 0) {
+					toolResults = await executeTools(toolCallResponse.toolCalls, {
+						userId: user.id,
+						locale: 'de'
+					});
 
-							nvcKnowledgeContext = `\n\n**RELEVANTES GFK-WISSEN FÜR DIESE SITUATION:**\n${knowledgeEntries}\n\nNutze dieses Wissen, um dem Nutzer hilfreiche GFK-Perspektiven und -Konzepte anzubieten, wenn sie für die aktuelle Situation relevant sind. Integriere das Wissen natürlich und subtil in deine Antworten, ohne es aufzudrängen.`;
-							console.log(`✅ Found ${relevantNVCKnowledge.length} relevant NVC knowledge entries`);
+					// Process tool results
+					for (const result of toolResults) {
+						if (!result.success) {
+							console.warn(`⚠️ Tool ${result.tool} failed:`, result.error);
+							continue;
 						}
-					} else if (result.tool === 'extract_nvc_components') {
-						nvcExtraction = result.result;
-						console.log('✅ NVC extraction completed:', {
-							observation: nvcExtraction?.observation ? 'present' : 'none',
-							feelings: nvcExtraction?.feelings?.length || 0,
-							needs: nvcExtraction?.needs?.length || 0,
-							request: nvcExtraction?.request ? 'present' : 'none'
-						});
-					} else if (result.tool === 'analyze_path_switch') {
-						pathSwitchAnalysisFromTool = result.result;
-						// Use tool-based path analysis if we didn't already do path switching
-						if (!pathSwitched && pathSwitchAnalysisFromTool) {
-							pathSwitchAnalysis = pathSwitchAnalysisFromTool;
-							console.log('🔍 Path analysis from tool:', pathSwitchAnalysis);
-							
-							// Apply path switch if needed
-							if (pathSwitchAnalysis.shouldSwitch &&
-								pathSwitchAnalysis.confidence >= 70 &&
-								pathSwitchAnalysis.suggestedPath &&
-								pathSwitchAnalysis.suggestedPath !== activePath) {
+
+						if (result.tool === 'search_memories') {
+							relevantMemories = result.result || [];
+							if (relevantMemories.length > 0) {
+								memoryContext = formatMemoriesForPrompt(relevantMemories);
+								console.log(`✅ Found ${relevantMemories.length} relevant memories`);
+							}
+						} else if (result.tool === 'retrieve_nvc_knowledge') {
+							relevantNVCKnowledge = result.result?.knowledgeEntries || [];
+							if (relevantNVCKnowledge.length > 0) {
+								const knowledgeEntries = relevantNVCKnowledge.map((entry: any) => {
+									return `**${entry.title}** (Ähnlichkeit: ${(entry.similarity * 100).toFixed(0)}%)\n${entry.content}${entry.source ? `\n_Quelle: ${entry.source}_` : ''}`;
+								}).join('\n\n');
+
+								nvcKnowledgeContext = `\n\n**RELEVANTES GFK-WISSEN FÜR DIESE SITUATION:**\n${knowledgeEntries}\n\nNutze dieses Wissen, um dem Nutzer hilfreiche GFK-Perspektiven und -Konzepte anzubieten, wenn sie für die aktuelle Situation relevant sind. Integriere das Wissen natürlich und subtil in deine Antworten, ohne es aufzudrängen.`;
+								console.log(`✅ Found ${relevantNVCKnowledge.length} relevant NVC knowledge entries`);
+							}
+						} else if (result.tool === 'extract_nvc_components') {
+							nvcExtraction = result.result;
+							console.log('✅ NVC extraction completed:', {
+								observation: nvcExtraction?.observation ? 'present' : 'none',
+								feelings: nvcExtraction?.feelings?.length || 0,
+								needs: nvcExtraction?.needs?.length || 0,
+								request: nvcExtraction?.request ? 'present' : 'none'
+							});
+						} else if (result.tool === 'analyze_path_switch') {
+							pathSwitchAnalysisFromTool = result.result;
+							// Use tool-based path analysis if we didn't already do path switching
+							if (!pathSwitched && pathSwitchAnalysisFromTool) {
+								pathSwitchAnalysis = pathSwitchAnalysisFromTool;
+								console.log('🔍 Path analysis from tool:', pathSwitchAnalysis);
 								
-								const nextPath = pathSwitchAnalysis.suggestedPath;
-								if (CONVERSATION_PATHS[nextPath]) {
-									const newPathState: PathState = {
-										activePath: nextPath,
-										pathHistory: [...pathState.pathHistory, nextPath],
-										startedAt: pathState.startedAt,
-										lastSwitch: Date.now()
-									};
+								// Apply path switch if needed
+								if (pathSwitchAnalysis.shouldSwitch &&
+									pathSwitchAnalysis.confidence >= 70 &&
+									pathSwitchAnalysis.suggestedPath &&
+									pathSwitchAnalysis.suggestedPath !== activePath) {
+									
+									const nextPath = pathSwitchAnalysis.suggestedPath;
+									if (CONVERSATION_PATHS[nextPath]) {
+										const newPathState: PathState = {
+											activePath: nextPath,
+											pathHistory: [...pathState.pathHistory, nextPath],
+											startedAt: pathState.startedAt,
+											lastSwitch: Date.now()
+										};
 
-									await db.update(chatsTable)
-										.set({ pathState: JSON.stringify(newPathState) })
-										.where(eq(chatsTable.id, chatId));
+										await db.update(chatsTable)
+											.set({ pathState: JSON.stringify(newPathState) })
+											.where(eq(chatsTable.id, chatId));
 
-									pathSwitched = true;
-									newPathId = nextPath;
-									activePath = nextPath;
-									console.log(`✅ Path switched to ${nextPath} (from tool)`);
+										pathSwitched = true;
+										newPathId = nextPath;
+										activePath = nextPath;
+										pathState.activePath = nextPath;
+										pathState.pathHistory = newPathState.pathHistory;
+										pathState.lastSwitch = Date.now();
+										console.log(`✅ Path switched to ${nextPath} (from tool)`);
+										
+										// If switched to memory path, fetch memories immediately
+										if (nextPath === 'memory' && !memoryContext) {
+											try {
+												console.log('🧠 Path switched to memory - fetching all memories directly');
+												const { getUserMemories } = await import('../lib/memory.js');
+												const allMemories = await getUserMemories(user.id, 20);
+												relevantMemories = allMemories;
+												if (allMemories.length > 0) {
+													memoryContext = formatMemoriesForPrompt(allMemories);
+													console.log(`✅ Fetched ${allMemories.length} memories after path switch to memory`);
+												} else {
+													memoryContext = '- Keine Erinnerungen gefunden';
+													console.log('⚠️ No memories found for user after path switch');
+												}
+											} catch (memoryError) {
+												console.error('❌ Error fetching memories after path switch:', memoryError);
+												memoryContext = '- Fehler beim Abrufen der Erinnerungen';
+											}
+										}
+									}
 								}
 							}
 						}
@@ -793,12 +898,16 @@ bullshift.post('/analyzeChat', async (c: Context) => {
 		const systemInstruction = getSystemPromptForPath(pathId, user);
 
 		// Step 3: Extract memories from the analyzed chat (pass the specific chatId)
-		console.log('Triggering memory extraction for chat:', chatId);
+		console.log('🧠 Triggering memory extraction for chat:', chatId);
 		try {
-			await extractMemories(user.id, locale, chatId);
-			console.log('Memory extraction completed');
+			const memoryResult = await extractMemories(user.id, locale, chatId);
+			console.log('✅ Memory extraction completed, result:', memoryResult);
 		} catch (memError) {
-			console.error('Memory extraction failed:', memError);
+			console.error('❌ Memory extraction failed:', memError);
+			console.error('❌ Memory extraction error details:', {
+				message: memError instanceof Error ? memError.message : String(memError),
+				stack: memError instanceof Error ? memError.stack : undefined
+			});
 			// Don't fail the whole request if memory extraction fails
 		}
 

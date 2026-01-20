@@ -14,6 +14,7 @@ import {
 	user as userTable
 } from '../../drizzle/schema.js';
 import { decryptChatHistory, type HistoryEntry } from './encryption.js';
+import { getExpiryDate, classifyMemoryType } from './memory.js';
 import { searchNVCKnowledge, type NVCKnowledgeEntry } from './nvc-knowledge.js';
 
 const db = drizzle(process.env.DATABASE_URL!);
@@ -556,7 +557,7 @@ Wähle die Nummer des Zitats, das am besten zu dieser Person und ihrer Situation
 				model: 'gemini-2.5-flash',
 				config: {
 					temperature: 0.7, // Higher temperature for more variety in selection
-					maxOutputTokens: 50, // Increased to ensure complete JSON response
+					maxOutputTokens: 500, // Increased to ensure complete JSON response
 					systemInstruction,
 					responseMimeType: 'application/json',
 					responseSchema: {
@@ -574,19 +575,61 @@ Wähle die Nummer des Zitats, das am besten zu dieser Person und ihrer Situation
 
 			const result = await chat.sendMessage({ message: quotePrompt });
 
-			console.log('📥 Raw AI response:', result.text);
+			console.log('📥 Full AI response object:', JSON.stringify(result, null, 2));
+			console.log('📥 Raw AI response text:', result.text);
 			console.log('📥 Response type:', typeof result.text);
+			console.log('📥 Response candidates:', result.candidates);
 
 			// Parse the JSON response to get quote index
 			let quoteIndex = -1;
 			try {
-				const responseText = result.text?.trim();
+				// Try to get text from result.text first, then from candidates
+				let responseText = result.text?.trim();
+				if (!responseText && result.candidates && result.candidates.length > 0) {
+					const candidate = result.candidates[0];
+					if (candidate.content?.parts && candidate.content.parts.length > 0) {
+						responseText = candidate.content.parts[0].text?.trim();
+					}
+				}
+				
 				if (!responseText) {
 					throw new Error('Empty response');
 				}
 				
 				console.log('📥 Parsing response text:', responseText);
-				const parsed = typeof responseText === 'string' ? JSON.parse(responseText) : responseText;
+				
+				// Try to parse as JSON directly first
+				let parsed;
+				if (typeof responseText === 'string') {
+					try {
+						parsed = JSON.parse(responseText);
+					} catch (parseError) {
+						// If direct parsing fails, try to extract JSON from the text
+						// Look for JSON object pattern { ... }
+						const jsonMatch = responseText.match(/\{[\s\S]*\}/);
+						if (jsonMatch) {
+							console.log('📥 Extracted JSON from text:', jsonMatch[0]);
+							parsed = JSON.parse(jsonMatch[0]);
+						} else {
+							// Try to find a number in the response
+							const numberMatch = responseText.match(/\d+/);
+							if (numberMatch) {
+								const num = parseInt(numberMatch[0], 10);
+								if (num >= 0 && num < QUOTE_BACKLOG.length) {
+									console.log('📥 Extracted number from text:', num);
+									parsed = { quoteIndex: num };
+								} else {
+									throw new Error('No valid JSON or number found in response');
+								}
+							} else {
+								throw new Error('No valid JSON or number found in response');
+							}
+						}
+					}
+				} else {
+					parsed = responseText;
+				}
+				
 				console.log('📥 Parsed JSON:', parsed);
 				
 				quoteIndex = Math.floor(Number(parsed.quoteIndex));
@@ -1231,50 +1274,89 @@ ${concatenatedHistory}
 			throw new Error('Failed to parse AI memory extraction response');
 		}
 
-		console.log('Extracted memories:', extractedMemories.length);
-		console.log('Sample extracted memory:', JSON.stringify(extractedMemories[0] || {}, null, 2));
+		console.log(`📝 Extracted ${extractedMemories.length} memories from chat`);
+		if (extractedMemories.length === 0) {
+			console.warn('⚠️ No memories extracted from chat - AI returned empty array');
+			console.log('📋 Chat history that was analyzed:', concatenatedHistory.substring(0, 500) + '...');
+		} else {
+			console.log('📝 Sample extracted memory:', JSON.stringify(extractedMemories[0] || {}, null, 2));
+		}
 
 		// 7. Generate embeddings and save memories to PostgreSQL
+		let savedCount = 0;
+		let failedCount = 0;
 		for (const memory of extractedMemories) {
 			try {
 				// Generate embedding using Gemini's correct API
 				const embeddingText = `${memory.key}: ${memory.value}`;
 				const response = await ai.models.embedContent({
-					model: 'text-embedding-001',
-					contents: embeddingText
+					model: 'gemini-embedding-001',
+					contents: embeddingText,
+					config: {
+						outputDimensionality: 768
+					}
 				});
 
-				if (!response.embeddings || !response.embeddings[0] || !response.embeddings[0].values) {
-					console.error('Failed to get embedding values for memory:', memory.key);
-					continue;
+				// Check both singular and plural forms (SDK might use either)
+				let embeddingValues: number[] | undefined;
+				if (response.embedding?.values) {
+					embeddingValues = response.embedding.values;
+				} else if (response.embeddings && Array.isArray(response.embeddings) && response.embeddings.length > 0) {
+					// Handle plural form - take first embedding's values
+					embeddingValues = response.embeddings[0].values;
+				} else if ((response as any).embedding?.values) {
+					// Try nested structure
+					embeddingValues = (response as any).embedding.values;
 				}
 
-				const embeddingValues = response.embeddings[0].values;
+				if (!embeddingValues || !Array.isArray(embeddingValues)) {
+					console.error('Failed to get embedding values for memory:', memory.key);
+					console.error('Response structure:', JSON.stringify(response, null, 2));
+					continue;
+				}
+				
 				const priority = memory.confidence === 'certain' ? 3 : memory.confidence === 'likely' ? 2 : 1;
 				const chatIdToUse = specificChatId || chatIds[0] || null;
 				// Convert empty string to null for cleaner database storage
 				const personName = memory.personName && memory.personName.trim() !== '' ? memory.personName.trim() : null;
 
-				console.log(`Saving memory with personName: "${personName}" (type: ${memory.aspectType})`);
+				// Map aspectType from AI extraction to MemoryType for database
+				// aspectType: 'identity' | 'emotion' | 'relationship' | 'value'
+				// MemoryType: 'core_identity' | 'patterns' | 'preferences' | 'episodic' | 'contextual'
+				const memoryType = classifyMemoryType(memory.value); // Use the value text to classify
+				
+				// Calculate expiry date based on memory type
+				const expiryDate = getExpiryDate(memoryType);
+				const expiresAt = expiryDate ? expiryDate.toISOString() : null;
+
+				console.log(`Saving memory with personName: "${personName}" (aspectType: ${memory.aspectType} -> memoryType: ${memoryType}), embedding dimensions: ${embeddingValues.length}, expires_at: ${expiresAt}`);
 
 				// Use raw SQL to insert with proper vector conversion (like empathy-link does)
 				await db.execute(sql`
 					INSERT INTO memories (
 						user_id, confidence, type, priority, key, value, person_name, embedding,
-						chat_id, relevance_score, access_count
+						chat_id, relevance_score, access_count, expires_at
 					) VALUES (
-						${userId}, ${memory.confidence}, ${memory.aspectType}, ${priority}, ${memory.key},
+						${userId}, ${memory.confidence}, ${memoryType}, ${priority}, ${memory.key},
 						${memory.value}, ${personName}, ${JSON.stringify(embeddingValues)}::vector, ${chatIdToUse},
-						1.0, 0
+						1.0, 0, ${expiresAt}
 					)
 				`);
 
-				console.log(`Created memory: [${memory.aspectType}] ${memory.value}${personName ? ` (person: ${personName})` : ''}`);
+				console.log(`✅ Created memory: [${memory.aspectType}] ${memory.value}${personName ? ` (person: ${personName})` : ''}`);
+				savedCount++;
 			} catch (embeddingError) {
-				console.error('Error creating memory:', embeddingError);
+				console.error(`❌ Error creating memory for "${memory.key}":`, embeddingError);
+				console.error('❌ Error details:', {
+					message: embeddingError instanceof Error ? embeddingError.message : String(embeddingError),
+					stack: embeddingError instanceof Error ? embeddingError.stack : undefined
+				});
+				failedCount++;
 				// Continue with next memory even if one fails
 			}
 		}
+
+		console.log(`💾 Memory save summary: ${savedCount} saved, ${failedCount} failed out of ${extractedMemories.length} total`);
 
 		// 8. Mark all processed chats as memoryProcessed
 		for (const chatId of chatIds) {

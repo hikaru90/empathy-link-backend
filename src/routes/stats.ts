@@ -559,8 +559,9 @@ stats.post('/need-fill-levels/snapshot', async (c: Context) => {
 		const trackedNeedIds = new Set(userTrackedNeeds.map(tn => tn.id));
 
 		// Use today's date (start of day) for the snapshot
+		// Normalize to UTC start of day to ensure consistent comparison
 		const today = new Date();
-		today.setHours(0, 0, 0, 0);
+		today.setUTCHours(0, 0, 0, 0);
 		const todayISO = today.toISOString();
 
 		// Save all fill levels for today
@@ -578,24 +579,48 @@ stats.post('/need-fill-levels/snapshot', async (c: Context) => {
 				continue;
 			}
 
-			// Upsert: update if exists for today, otherwise insert
-			const [inserted] = await db
-				.insert(needFillLevels)
-				.values({
-					trackedNeedId,
-					fillLevel: Math.round(level),
-					date: todayISO,
-				})
-				.onConflictDoUpdate({
-					target: [needFillLevels.trackedNeedId, needFillLevels.date],
-					set: {
-						fillLevel: Math.round(level),
-					},
-				})
-				.returning();
+			// First, check if there's an existing entry for today
+			// We need to normalize the date comparison to match entries that are on the same day
+			// even if they have different times
+			const existingToday = await db
+				.select()
+				.from(needFillLevels)
+				.where(
+					and(
+						eq(needFillLevels.trackedNeedId, trackedNeedId),
+						// Use SQL to compare dates (normalize to start of day)
+						sql`DATE(${needFillLevels.date}) = DATE(${todayISO})`
+					)
+				)
+				.limit(1);
 
-			if (inserted) {
-				savedLevels.push(inserted);
+			if (existingToday.length > 0) {
+				// Update existing entry for today
+				const [updated] = await db
+					.update(needFillLevels)
+					.set({
+						fillLevel: Math.round(level),
+					})
+					.where(eq(needFillLevels.id, existingToday[0].id))
+					.returning();
+				
+				if (updated) {
+					savedLevels.push(updated);
+				}
+			} else {
+				// Insert new entry for today
+				const [inserted] = await db
+					.insert(needFillLevels)
+					.values({
+						trackedNeedId,
+						fillLevel: Math.round(level),
+						date: todayISO,
+					})
+					.returning();
+
+				if (inserted) {
+					savedLevels.push(inserted);
+				}
 			}
 		}
 
@@ -1695,6 +1720,141 @@ stats.delete('/tracked-needs/:trackedNeedId', async (c: Context) => {
 	} catch (error) {
 		console.error('Error deleting tracked need:', error);
 		return c.json({ error: 'Failed to delete tracked need' }, 500);
+	}
+});
+
+// GET /api/stats/tracked-needs/:trackedNeedId/strategies - Get strategies for a tracked need
+stats.get('/tracked-needs/:trackedNeedId/strategies', async (c: Context) => {
+	const user = c.get('user');
+	if (!user) {
+		return c.json({ error: 'Unauthorized' }, 401);
+	}
+
+	try {
+		const trackedNeedId = c.req.param('trackedNeedId');
+
+		// Verify the tracked need belongs to the user
+		const trackedNeed = await db
+			.select()
+			.from(trackedNeeds)
+			.where(and(
+				eq(trackedNeeds.id, trackedNeedId),
+				eq(trackedNeeds.userId, user.id)
+			))
+			.limit(1);
+
+		if (trackedNeed.length === 0) {
+			return c.json({ error: 'Tracked need not found or access denied' }, 404);
+		}
+
+		// Parse strategies from JSON string
+		let strategies: string[] = [];
+		if (trackedNeed[0].strategies) {
+			try {
+				strategies = JSON.parse(trackedNeed[0].strategies);
+			} catch (e) {
+				console.error('Failed to parse strategies:', e);
+				strategies = [];
+			}
+		}
+
+		// Parse doneStrategies from JSON string
+		let doneStrategies: number[] = [];
+		if ((trackedNeed[0] as any).doneStrategies) {
+			try {
+				doneStrategies = JSON.parse((trackedNeed[0] as any).doneStrategies);
+			} catch (e) {
+				console.error('Failed to parse doneStrategies:', e);
+				doneStrategies = [];
+			}
+		}
+
+		return c.json({ strategies, doneStrategies });
+	} catch (error) {
+		console.error('Error fetching strategies:', error);
+		return c.json({ error: 'Failed to fetch strategies' }, 500);
+	}
+});
+
+// PUT /api/stats/tracked-needs/:trackedNeedId/strategies - Update strategies for a tracked need
+stats.put('/tracked-needs/:trackedNeedId/strategies', async (c: Context) => {
+	const user = c.get('user');
+	if (!user) {
+		return c.json({ error: 'Unauthorized' }, 401);
+	}
+
+	try {
+		const trackedNeedId = c.req.param('trackedNeedId');
+		const body = await c.req.json();
+		const { strategies, doneStrategies } = body; // strategies: Array of strings, doneStrategies: Array of numbers (indices)
+
+		if (!Array.isArray(strategies)) {
+			return c.json({ error: 'strategies must be an array of strings' }, 400);
+		}
+
+		// Verify the tracked need belongs to the user
+		const trackedNeed = await db
+			.select()
+			.from(trackedNeeds)
+			.where(and(
+				eq(trackedNeeds.id, trackedNeedId),
+				eq(trackedNeeds.userId, user.id)
+			))
+			.limit(1);
+
+		if (trackedNeed.length === 0) {
+			return c.json({ error: 'Tracked need not found or access denied' }, 404);
+		}
+
+		// Prepare update object
+		const updateData: any = {
+			strategies: JSON.stringify(strategies),
+			updated: sql`now()`,
+		};
+
+		// Update doneStrategies if provided
+		if (doneStrategies !== undefined) {
+			if (!Array.isArray(doneStrategies)) {
+				return c.json({ error: 'doneStrategies must be an array of numbers' }, 400);
+			}
+			updateData.doneStrategies = JSON.stringify(doneStrategies);
+		}
+
+		// Update strategies (store as JSON string)
+		const [updated] = await db
+			.update(trackedNeeds)
+			.set(updateData)
+			.where(eq(trackedNeeds.id, trackedNeedId))
+			.returning();
+
+		// Parse strategies for response
+		let parsedStrategies: string[] = [];
+		if (updated.strategies) {
+			try {
+				parsedStrategies = JSON.parse(updated.strategies);
+			} catch {
+				parsedStrategies = [];
+			}
+		}
+
+		// Parse doneStrategies for response
+		let parsedDoneStrategies: number[] = [];
+		if ((updated as any).doneStrategies) {
+			try {
+				parsedDoneStrategies = JSON.parse((updated as any).doneStrategies);
+			} catch {
+				parsedDoneStrategies = [];
+			}
+		}
+
+		return c.json({
+			id: updated.id,
+			strategies: parsedStrategies,
+			doneStrategies: parsedDoneStrategies,
+		});
+	} catch (error) {
+		console.error('Error updating strategies:', error);
+		return c.json({ error: 'Failed to update strategies' }, 500);
 	}
 });
 

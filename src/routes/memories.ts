@@ -9,6 +9,7 @@ import {
 	createMemory,
 	getUserMemories,
 	deleteMemory,
+	deleteMemories,
 	formatMemoriesForPrompt
 } from '../lib/memory.js';
 import type { Env } from '../types/hono.js';
@@ -98,6 +99,37 @@ app.get('/', async (c: Context<Env>) => {
 	} catch (error) {
 		console.error('Error getting memories:', error);
 		return c.json({ error: 'Failed to get memories' }, 500);
+	}
+});
+
+/**
+ * Delete multiple memories
+ * DELETE /api/memories/bulk
+ * Body: { ids: string[] }
+ */
+app.delete('/bulk', async (c: Context<Env>) => {
+	try {
+		const user = c.get('user');
+		if (!user) {
+			return c.json({ error: 'Unauthorized' }, 401);
+		}
+
+		const { ids } = await c.req.json();
+
+		if (!ids || !Array.isArray(ids) || ids.length === 0) {
+			return c.json({ error: 'ids array is required' }, 400);
+		}
+
+		const success = await deleteMemories(ids, user.id);
+
+		if (!success) {
+			return c.json({ error: 'Failed to delete memories' }, 500);
+		}
+
+		return c.json({ success: true, deletedCount: ids.length });
+	} catch (error) {
+		console.error('Error deleting memories:', error);
+		return c.json({ error: 'Failed to delete memories' }, 500);
 	}
 });
 

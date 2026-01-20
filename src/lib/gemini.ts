@@ -203,10 +203,14 @@ Verfügbare Pfade:
 - other_empathy: Fremd-Empathie (Empathie für andere Personen entwickeln)
 - action_planning: Handlungsplanung (konkrete Schritte planen)
 - conflict_resolution: Konfliktlösung (Probleme mit anderen lösen)
-- memory: Erinnerungen abrufen (gespeicherte Informationen über den Nutzer)
+- memory: Erinnerungen ABRUFEN (gespeicherte Informationen über den Nutzer anzeigen)
 - feedback: Gespräch beenden (Feedback sammeln und Gespräch abschließen)
 
 WICHTIG: Achte auf die ABSICHT des Nutzers, nicht nur auf exakte Keywords!
+
+KRITISCHER UNTERSCHIED:
+- "merken" / "merke dir" / "vergiss nicht" = Nutzer möchte etwas SPEICHERN → NICHT zu memory wechseln, im aktuellen Pfad bleiben
+- "was erinnerst du" / "was weißt du" / "erzähl mir von" = Nutzer möchte Erinnerungen ABRUFEN → zu memory wechseln
 
 FALL A: Nutzer ist im Pfad "idle" (Gesprächsführung):
 → Wechsle SOFORT, wenn der Nutzer ein konkretes Thema oder Ziel äußert:
@@ -214,8 +218,9 @@ FALL A: Nutzer ist im Pfad "idle" (Gesprächsführung):
   - "andere Person" / "jemand anderen" / "Empathie für X" → other_empathy
   - "was tun" / "Handlung" / "Schritte" / "Plan" → action_planning
   - "Konflikt" / "Streit" / "Problem lösen" → conflict_resolution
-  - "Erinnerung" / "was weißt du" / "früher" → memory
+  - "was erinnerst du" / "was weißt du über mich" / "erzähl mir von früher" → memory (NUR zum Abrufen!)
   - "beenden" / "fertig" / "Schluss" → feedback
+  - "merke dir" / "vergiss nicht" / "merken" → NICHT wechseln, im idle bleiben (Speichern passiert automatisch)
 
 FALL B: Nutzer ist bereits in einem spezifischen Pfad (nicht idle):
 → Wechsle nur, wenn der Nutzer EXPLIZIT ein ANDERES Thema nennt
@@ -234,6 +239,12 @@ Aktueller Pfad = self_empathy, Nachricht = "ich fühle mich traurig"
 
 Aktueller Pfad = self_empathy, Nachricht = "können wir jetzt zur handlungsplanung?"
 → shouldSwitch: true, suggestedPath: "action_planning", confidence: 95
+
+Aktueller Pfad = idle, Nachricht = "kannst du dir merken, dass ich Otter mag?"
+→ shouldSwitch: false (Nutzer möchte etwas speichern, nicht abrufen - Speichern passiert automatisch im Hintergrund)
+
+Aktueller Pfad = idle, Nachricht = "was erinnerst du dich über mich?"
+→ shouldSwitch: true, suggestedPath: "memory", confidence: 95 (Nutzer möchte Erinnerungen abrufen)
 
 Antworte ausschließlich mit einem JSON-Objekt:
 {

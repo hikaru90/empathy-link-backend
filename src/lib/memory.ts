@@ -61,15 +61,29 @@ export async function generateEmbedding(text: string): Promise<number[]> {
 		const genai = getGenAIClient();
 
 		const response = await genai.models.embedContent({
-			model: 'text-embedding-001',
+			model: 'gemini-embedding-001',
 			contents: text,
+			config: {
+				outputDimensionality: 768
+			}
 		});
 
-		if (!response.embeddings || response.embeddings.length === 0) {
-			throw new Error('No embeddings returned from API');
+		// Check both singular and plural forms (SDK might use either)
+		let values: number[] | undefined;
+		if (response.embedding?.values) {
+			values = response.embedding.values;
+		} else if (response.embeddings && Array.isArray(response.embeddings) && response.embeddings.length > 0) {
+			// Handle plural form - take first embedding's values
+			values = response.embeddings[0].values;
+		} else if ((response as any).embedding?.values) {
+			// Try nested structure
+			values = (response as any).embedding.values;
 		}
 
-		const values = response.embeddings[0].values;
+		if (!values || !Array.isArray(values)) {
+			console.error('Response structure:', JSON.stringify(response, null, 2));
+			throw new Error('No embeddings returned from API');
+		}
 		if (!values || !Array.isArray(values)) {
 			throw new Error('No embedding values returned from API');
 		}
@@ -300,11 +314,18 @@ export function formatMemoriesForPrompt(memories: Array<Memory & { similarity?: 
 	if (memories.length === 0) return '';
 
 	const formattedMemories = memories
-		.sort((a, b) => b.priority - a.priority) // Sort by priority
+		.sort((a, b) => {
+			// Sort by priority first, then by access count
+			if (b.priority !== a.priority) {
+				return b.priority - a.priority;
+			}
+			return b.accessCount - a.accessCount;
+		})
 		.map(memory => {
+			// Handle invalid types gracefully
 			const type = memory.type.replace('_', ' ').toUpperCase();
 			const accessInfo = memory.accessCount > 1 ? ` (erwähnt ${memory.accessCount}x)` : '';
-			return `- [${type}] ${memory.value}${accessInfo}`;
+			return `- ${memory.value}${accessInfo}`;
 		});
 
 	return `Relevante Erinnerungen über diesen Nutzer:\n${formattedMemories.join('\n')}\n`;
@@ -315,6 +336,7 @@ export function formatMemoriesForPrompt(memories: Array<Memory & { similarity?: 
  */
 export async function getUserMemories(userId: string, limit: number = 50): Promise<Memory[]> {
 	try {
+		console.log(`🔍 Fetching memories for user: ${userId}, limit: ${limit}`);
 		const results = await db
 			.select()
 			.from(memories)
@@ -324,9 +346,27 @@ export async function getUserMemories(userId: string, limit: number = 50): Promi
 					sql`(expires_at IS NULL OR expires_at > NOW())`
 				)
 			)
-			.orderBy(desc(memories.priority), desc(memories.accessCount))
+			.orderBy(desc(memories.priority), desc(memories.accessCount), desc(memories.created))
 			.limit(limit);
 
+		console.log(`📝 Found ${results.length} memories for user ${userId}`);
+		if (results.length > 0) {
+			console.log(`📝 Sample memory:`, {
+				id: results[0].id,
+				key: results[0].key,
+				value: results[0].value,
+				type: results[0].type,
+				expiresAt: results[0].expiresAt
+			});
+			// Log all memory types and keys to debug
+			console.log(`📝 All memory types and keys:`, results.map(m => ({
+				key: m.key,
+				value: m.value?.substring(0, 50),
+				type: m.type,
+				priority: m.priority,
+				accessCount: m.accessCount
+			})));
+		}
 		return results as Memory[];
 	} catch (error) {
 		console.error('Error getting user memories:', error);
@@ -347,6 +387,30 @@ export async function deleteMemory(memoryId: string, userId: string): Promise<bo
 		return true;
 	} catch (error) {
 		console.error('Error deleting memory:', error);
+		return false;
+	}
+}
+
+/**
+ * Delete multiple memories by IDs
+ */
+export async function deleteMemories(memoryIds: string[], userId: string): Promise<boolean> {
+	try {
+		if (memoryIds.length === 0) {
+			return true;
+		}
+
+		await db
+			.delete(memories)
+			.where(and(
+				inArray(memories.id, memoryIds),
+				eq(memories.userId, userId)
+			));
+
+		console.log(`🗑️ Deleted ${memoryIds.length} memories`);
+		return true;
+	} catch (error) {
+		console.error('Error deleting memories:', error);
 		return false;
 	}
 }

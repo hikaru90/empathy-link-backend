@@ -78,15 +78,31 @@ export async function generateNVCEmbedding(
 		const formattedText = `[NVC Knowledge ${language.toUpperCase()}] ${text}`;
 		
 		const response = await ai.models.embedContent({
-			model: 'text-embedding-001',
-			contents: formattedText
+			model: 'gemini-embedding-001',
+			contents: formattedText,
+			config: {
+				outputDimensionality: 768
+			}
 		});
 
-		if (!response.embeddings || response.embeddings.length === 0 || !response.embeddings[0].values) {
+		// Check both singular and plural forms (SDK might use either)
+		let values: number[] | undefined;
+		if (response.embedding?.values) {
+			values = response.embedding.values;
+		} else if (response.embeddings && Array.isArray(response.embeddings) && response.embeddings.length > 0) {
+			// Handle plural form - take first embedding's values
+			values = response.embeddings[0].values;
+		} else if ((response as any).embedding?.values) {
+			// Try nested structure
+			values = (response as any).embedding.values;
+		}
+
+		if (!values || !Array.isArray(values)) {
+			console.error('Response structure:', JSON.stringify(response, null, 2));
 			throw new Error('No embeddings returned from API');
 		}
 
-		return response.embeddings[0].values;
+		return values;
 	} catch (error) {
 		console.error('Embedding generation failed:', error);
 		throw new Error('Failed to generate embedding');

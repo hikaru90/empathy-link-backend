@@ -428,6 +428,8 @@ export const trackedNeeds = pgTable("tracked_needs", {
 	userId: text("user_id").notNull(),
 	needId: text("need_id").notNull(),
 	needName: text("need_name").notNull(),
+	strategies: text(), // JSON array of strings stored as text
+	doneStrategies: text(), // JSON array of indices (numbers) of completed strategies
 	deleted: boolean().default(false).notNull(), // Soft delete flag
 	created: timestamp({ mode: 'string' }).defaultNow().notNull(),
 	updated: timestamp({ mode: 'string' }).defaultNow().notNull(),
