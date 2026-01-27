@@ -1,5 +1,5 @@
 /**
- * Custom Tool Caller - Orchestrates tool calling using Gemini 2.0 with JSON structured output
+ * Custom Tool Caller - Orchestrates tool calling using Gemini 2.5 with JSON structured output
  */
 
 import { getAiClient } from './gemini.js';
@@ -23,7 +23,7 @@ export interface ToolCallResponse {
 }
 
 /**
- * Get tool calls from AI using Gemini 2.0 with JSON structured output
+ * Get tool calls from AI using Gemini 2.5 with JSON structured output
  */
 export async function getToolCalls(request: ToolCallRequest): Promise<ToolCallResponse> {
 	const ai = getAiClient();
@@ -143,7 +143,7 @@ Always respond with a JSON object in the following format:
 	console.log('📝 User message:', request.message.substring(0, 100));
 
 	const chat = ai.chats.create({
-		model: 'gemini-2.0-flash-lite',
+		model: 'gemini-2.5-flash-lite',
 		config: {
 			temperature: 0.3,
 			maxOutputTokens: 1024,

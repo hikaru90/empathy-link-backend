@@ -1147,13 +1147,15 @@ stats.get('/blind-spots', async (c: Context) => {
 			const lastAnalyzedChatDate = new Date(mostRecentBlindSpot.lastChatCreatedDate);
 			const now = new Date();
 
-			// Calculate days since last analysis
-			const daysSinceLastAnalysis = Math.floor((now.getTime() - lastAnalysisDate.getTime()) / (1000 * 60 * 60 * 24));
-			const daysUntilNextAnalysis = Math.max(0, 7 - daysSinceLastAnalysis);
-
-			// Calculate next available date
+			// Calculate next available date (7 days from last analysis)
 			const nextAvailableDate = new Date(lastAnalysisDate);
 			nextAvailableDate.setDate(nextAvailableDate.getDate() + 7);
+			
+			// Calculate days since last analysis
+			const daysSinceLastAnalysis = Math.floor((now.getTime() - lastAnalysisDate.getTime()) / (1000 * 60 * 60 * 24));
+			
+			// Calculate days until next analysis based on the actual next available date
+			const daysUntilNextAnalysis = Math.max(0, Math.ceil((nextAvailableDate.getTime() - now.getTime()) / (1000 * 60 * 60 * 24)));
 
 			console.log('📊 Blind Spots - Analysis check:');
 			console.log('   Days since last analysis:', daysSinceLastAnalysis);
@@ -1218,13 +1220,36 @@ stats.get('/blind-spots', async (c: Context) => {
 				});
 			}
 
-			console.log('🔄 New chat detected and weekly limit passed, generating fresh analysis');
+			// New chat detected but weekly limit not passed - return existing analysis
+			console.log('🔄 New chat detected but returning existing analysis (manual generation required)');
+			
+			return c.json({
+				id: mostRecentBlindSpot.id,
+				analysis: mostRecentBlindSpot.analysis,
+				patterns,
+				situations,
+				advice: mostRecentBlindSpot.advice,
+				created: mostRecentBlindSpot.created,
+				hasInsight: true,
+				canGenerateNew: daysSinceLastAnalysis >= 7,
+				isAdmin: userIsAdmin,
+				nextAvailableDate: nextAvailableDate.toISOString(),
+				daysUntilNext: daysUntilNextAnalysis,
+				message: daysSinceLastAnalysis >= 7 
+					? 'Neue Analyse verfügbar - klicke auf "Neu generieren" um eine aktualisierte Analyse zu erstellen.'
+					: `Nächste Analyse in ${daysUntilNextAnalysis} ${daysUntilNextAnalysis === 1 ? 'Tag' : 'Tagen'} verfügbar.`
+			});
 		} else {
-			console.log('🆕 No existing blind spot analysis found, generating first one');
+			// No existing analysis - return empty state
+			console.log('🆕 No existing blind spot analysis found');
+			
+			return c.json({
+				message: 'Klicke auf "Neu generieren" um deine erste Analyse zu erstellen.',
+				hasInsight: false,
+				canGenerateNew: true,
+				isAdmin: userIsAdmin
+			});
 		}
-
-		// Generate a new analysis
-		console.log('Generating new blind spot analysis');
 
 		// Fetch all chats and analyses for context
 		const userChats = await db
@@ -1465,10 +1490,16 @@ stats.post('/blind-spots/generate', async (c: Context) => {
 		if (mostRecentBlindSpot && !userIsAdmin) {
 			const lastAnalysisDate = new Date(mostRecentBlindSpot.created);
 			const now = new Date();
+			
+			// Calculate next available date (7 days from last analysis)
+			const nextAvailableDate = new Date(lastAnalysisDate);
+			nextAvailableDate.setDate(nextAvailableDate.getDate() + 7);
+			
 			const daysSinceLastAnalysis = Math.floor((now.getTime() - lastAnalysisDate.getTime()) / (1000 * 60 * 60 * 24));
 
 			if (daysSinceLastAnalysis < 7) {
-				const daysUntilNextAnalysis = 7 - daysSinceLastAnalysis;
+				// Calculate days until next analysis based on the actual next available date
+				const daysUntilNextAnalysis = Math.max(0, Math.ceil((nextAvailableDate.getTime() - now.getTime()) / (1000 * 60 * 60 * 24)));
 				return c.json({
 					error: 'Weekly limit active',
 					message: `Du kannst in ${daysUntilNextAnalysis} ${daysUntilNextAnalysis === 1 ? 'Tag' : 'Tagen'} eine neue Analyse erstellen.`,

@@ -2,7 +2,7 @@ import { desc, eq } from 'drizzle-orm';
 import { drizzle } from 'drizzle-orm/node-postgres';
 import type { Context } from 'hono';
 import { Hono } from 'hono';
-import { chats as chatsTable, feelings as feelingsTable } from '../../drizzle/schema.js';
+import { chats as chatsTable, feelings as feelingsTable, user as userTable } from '../../drizzle/schema.js';
 import { decryptChatHistory, encryptChatHistory, type HistoryEntry } from '../lib/encryption.js';
 import { getAiResponseWithRetry, analyzePathSwitchingIntent, type PathSwitchAnalysis } from '../lib/gemini.js';
 import { createPathMarker, getSystemPromptForPath, type PathState, CONVERSATION_PATHS } from '../lib/paths.js';
@@ -87,8 +87,23 @@ bullshift.post('/initChat', async (c: Context) => {
 
 		console.log('Created new chat record:', chatRecord[0].id);
 
+		// Fetch full user record with preferences
+		const userWithPreferences = await db
+			.select({
+				id: userTable.id,
+				firstName: userTable.firstName,
+				aiAnswerLength: userTable.aiAnswerLength,
+				toneOfVoice: userTable.toneOfVoice,
+				nvcKnowledge: userTable.nvcKnowledge,
+			})
+			.from(userTable)
+			.where(eq(userTable.id, user.id))
+			.limit(1);
+
+		const userContext = userWithPreferences[0] || user;
+
 		// Get system instruction for the specific path
-		const systemInstruction = getSystemPromptForPath(pathId, user);
+		const systemInstruction = getSystemPromptForPath(pathId, userContext);
 
 		// Return chat initialization data with unencrypted history for immediate use
 		return c.json({
@@ -135,8 +150,23 @@ bullshift.get('/getLatestChat', async (c: Context) => {
 		const pathState = chat.pathState ? JSON.parse(chat.pathState) : { activePath: 'idle' };
 		const activePath = pathState.activePath || 'idle';
 
+		// Fetch full user record with preferences
+		const userWithPreferences = await db
+			.select({
+				id: userTable.id,
+				firstName: userTable.firstName,
+				aiAnswerLength: userTable.aiAnswerLength,
+				toneOfVoice: userTable.toneOfVoice,
+				nvcKnowledge: userTable.nvcKnowledge,
+			})
+			.from(userTable)
+			.where(eq(userTable.id, user.id))
+			.limit(1);
+
+		const userContext = userWithPreferences[0] || user;
+
 		// Get system instruction for current path
-		const systemInstruction = getSystemPromptForPath(activePath, user);
+		const systemInstruction = getSystemPromptForPath(activePath, userContext);
 
 		console.log('Found existing chat:', chat.id, 'with path:', activePath);
 
@@ -563,8 +593,23 @@ bullshift.post('/send', async (c: Context) => {
 			nvcContext += '\n**WICHTIG:** Diese Komponenten wurden bereits vom Nutzer genannt. Frage NICHT erneut danach, es sei denn, der Nutzer bringt neue Aspekte ein oder möchte etwas ändern. Nutze diese Informationen, um deine Antworten zu kontextualisieren und dem Nutzer zu zeigen, dass du dich an bereits Gesagtes erinnerst.';
 		}
 
+		// Fetch full user record with preferences
+		const userWithPreferences = await db
+			.select({
+				id: userTable.id,
+				firstName: userTable.firstName,
+				aiAnswerLength: userTable.aiAnswerLength,
+				toneOfVoice: userTable.toneOfVoice,
+				nvcKnowledge: userTable.nvcKnowledge,
+			})
+			.from(userTable)
+			.where(eq(userTable.id, user.id))
+			.limit(1);
+
+		const userContext = userWithPreferences[0] || user;
+
 		// Get system instruction for current path with memory context and NVC context
-		let systemInstruction = getSystemPromptForPath(activePath, user, memoryContext);
+		let systemInstruction = getSystemPromptForPath(activePath, userContext, memoryContext);
 		
 		// Append NVC context to system instruction
 		if (nvcContext) {
@@ -577,7 +622,7 @@ bullshift.post('/send', async (c: Context) => {
 				// If no memories found from tools, try to get some anyway
 				memoryContext = '- Keine Erinnerungen gefunden';
 			}
-			systemInstruction = getSystemPromptForPath(activePath, user, memoryContext);
+			systemInstruction = getSystemPromptForPath(activePath, userContext, memoryContext);
 		} else if (memoryContext) {
 			// For other paths, inject memories subtly in system prompt
 			systemInstruction += `\n\n**KONTEXTWISSEN ÜBER DEN NUTZER:**\n${memoryContext}\nNutze dieses Wissen subtil und natürlich, um deine Antworten zu personalisieren. Erwähne Erinnerungen nur, wenn sie für die aktuelle Situation relevant sind.`;
@@ -895,7 +940,22 @@ bullshift.post('/analyzeChat', async (c: Context) => {
 
 		console.log('Created new chat record:', newChatRecord[0].id);
 
-		const systemInstruction = getSystemPromptForPath(pathId, user);
+		// Fetch full user record with preferences
+		const userWithPreferences = await db
+			.select({
+				id: userTable.id,
+				firstName: userTable.firstName,
+				aiAnswerLength: userTable.aiAnswerLength,
+				toneOfVoice: userTable.toneOfVoice,
+				nvcKnowledge: userTable.nvcKnowledge,
+			})
+			.from(userTable)
+			.where(eq(userTable.id, user.id))
+			.limit(1);
+
+		const userContext = userWithPreferences[0] || user;
+
+		const systemInstruction = getSystemPromptForPath(pathId, userContext);
 
 		// Step 3: Extract memories from the analyzed chat (pass the specific chatId)
 		console.log('🧠 Triggering memory extraction for chat:', chatId);

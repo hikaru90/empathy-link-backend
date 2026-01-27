@@ -20,6 +20,7 @@ import reminders from './routes/reminders.js';
 import stats from './routes/stats.js';
 import streaks from './routes/streaks.js';
 import testRuns from './routes/test-runs.js';
+import user from './routes/user.js';
 import type { Env } from './types/hono.js';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -237,6 +238,7 @@ app.route('/api/analyses', analyses);
 app.route('/api/memories', memories);
 app.route('/api/nvc-knowledge', nvcKnowledge);
 app.route('/api/learn', learn);
+app.route('/api/user', user);
 
 // Serve static files from dashboard directory (after API routes)
 // Use process.cwd() to get the project root, which works regardless of where the code is compiled

@@ -217,7 +217,13 @@ learn.patch('/sessions/:id', async (c: Context<Env>) => {
   }
 
   const { id } = c.req.param();
-  const body = await c.req.json();
+  let body: Record<string, unknown>;
+  try {
+    const raw = await c.req.text();
+    body = raw.trim() ? JSON.parse(raw) : {};
+  } catch {
+    return c.json({ error: 'Invalid or empty JSON body' }, 400);
+  }
 
   // Verify session belongs to user
   const [existingSession] = await db

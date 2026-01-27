@@ -101,7 +101,7 @@ function findFlexibleMatch(
 
 /**
  * Extract NVC components (observation, feelings, needs, request) from a single user message
- * Uses low-cost gemini-2.0-flash model and validates against database
+ * Uses low-cost gemini-2.5-flash model and validates against database
  */
 export async function extractNVCFromMessage(
 	message: string,
@@ -188,9 +188,9 @@ export async function extractNVCFromMessage(
 
 Analysiere diese Nachricht und extrahiere nur die NVC-Komponenten, die der Nutzer EXPLIZIT genannt hat.`;
 
-		// Use low-cost gemini-2.0-flash model
+		// Use low-cost gemini-2.5-flash model
 		const chat_session = ai.chats.create({
-			model: 'gemini-2.0-flash-lite',
+			model: 'gemini-2.5-flash-lite',
 			config: {
 				temperature: 0.2, // Lower temperature for more consistent extraction
 				maxOutputTokens: 1024,
@@ -1243,7 +1243,7 @@ For each memory:
 		console.log('📤 Sending memory extraction request to Gemini...');
 
 		const chat_session = ai.chats.create({
-			model: 'gemini-2.0-flash-lite',
+			model: 'gemini-2.5-flash-lite',
 			config: {
 				temperature: 0.3,
 				maxOutputTokens: 8192,
@@ -1453,7 +1453,7 @@ Respond with a JSON object in the format:
 		};
 
 		const chat_session = ai.chats.create({
-			model: 'gemini-2.0-flash-lite',
+			model: 'gemini-2.5-flash-lite',
 			config: {
 				temperature: 0.3,
 				maxOutputTokens: 512,
