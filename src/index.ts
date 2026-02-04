@@ -192,22 +192,28 @@ app.on(["POST", "GET", "OPTIONS"], "/api/auth/*", async (c) => {
 				}
 				
 				// Return error in the format frontend expects: { error: { message, status, statusText } }
-				return c.json({ 
-					error: {
-						message: errorMessage,
-						status: statusCode,
-						statusText: statusText
-					}
-				}, statusCode);
+				return c.json(
+					{
+						error: {
+							message: errorMessage,
+							status: statusCode,
+							statusText: statusText
+						}
+					},
+					statusCode as 400 | 401 | 403 | 404 | 422 | 429 | 500
+				);
 			} catch (parseError) {
 				// If response is not JSON, return error in expected format
-				return c.json({
-					error: {
-						message: 'Ein Fehler ist aufgetreten',
-						status: response.status,
-						statusText: response.statusText || 'Error'
-					}
-				}, response.status);
+				return c.json(
+					{
+						error: {
+							message: 'Ein Fehler ist aufgetreten',
+							status: response.status,
+							statusText: response.statusText || 'Error'
+						}
+					},
+					(response.status || 500) as 400 | 401 | 403 | 404 | 422 | 429 | 500
+				);
 			}
 		}
 		

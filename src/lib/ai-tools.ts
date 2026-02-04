@@ -1299,13 +1299,9 @@ ${concatenatedHistory}
 
 				// Check both singular and plural forms (SDK might use either)
 				let embeddingValues: number[] | undefined;
-				if (response.embedding?.values) {
-					embeddingValues = response.embedding.values;
-				} else if (response.embeddings && Array.isArray(response.embeddings) && response.embeddings.length > 0) {
-					// Handle plural form - take first embedding's values
+				if (response.embeddings && Array.isArray(response.embeddings) && response.embeddings.length > 0) {
 					embeddingValues = response.embeddings[0].values;
 				} else if ((response as any).embedding?.values) {
-					// Try nested structure
 					embeddingValues = (response as any).embedding.values;
 				}
 

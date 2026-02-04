@@ -70,13 +70,9 @@ export async function generateEmbedding(text: string): Promise<number[]> {
 
 		// Check both singular and plural forms (SDK might use either)
 		let values: number[] | undefined;
-		if (response.embedding?.values) {
-			values = response.embedding.values;
-		} else if (response.embeddings && Array.isArray(response.embeddings) && response.embeddings.length > 0) {
-			// Handle plural form - take first embedding's values
+		if (response.embeddings && Array.isArray(response.embeddings) && response.embeddings.length > 0) {
 			values = response.embeddings[0].values;
 		} else if ((response as any).embedding?.values) {
-			// Try nested structure
 			values = (response as any).embedding.values;
 		}
 
