@@ -8,9 +8,13 @@
 		type TopicPayload,
 		type VersionPayload
 	} from '../lib/api';
+	import { getSession, signOut } from '../lib/auth';
+	import Login from '../lib/components/Login.svelte';
 	import LearnEditor from '../lib/components/learn/LearnEditor.svelte';
 	import type { ContentBlock } from '../lib/schema';
 
+	let session: { user: { name: string; email: string } } | null = null;
+	let authChecked = false;
 	let categories: LearnCategory[] = [];
 	let topics: LearnTopic[] = [];
 let editingTopic: (LearnTopic & { versions?: LearnTopicVersion[] }) | null = null;
@@ -34,6 +38,9 @@ let topicForm = {
 };
 
 	onMount(async () => {
+		session = await getSession();
+		authChecked = true;
+		if (!session) return;
 		await loadCategories();
 		await loadTopics();
 		loading = false;
@@ -115,6 +122,13 @@ let topicForm = {
 	}
 </script>
 
+{#if !authChecked}
+	<div class="min-h-screen bg-slate-50 flex items-center justify-center">
+		<p class="text-slate-500">Wird geladen…</p>
+	</div>
+{:else if !session}
+	<Login />
+{:else}
 <main class="min-h-screen bg-slate-50 text-slate-900">
 	<header class="bg-white border-b border-slate-200">
 		<div class="max-w-6xl mx-auto px-6 py-6 flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
@@ -123,8 +137,18 @@ let topicForm = {
 				<h1 class="text-2xl font-semibold">Learn Content Manager</h1>
 				<p class="text-sm text-slate-500">Manage learn content entries.</p>
 			</div>
-			<nav class="flex gap-4 text-sm">
+			<nav class="flex gap-4 text-sm items-center">
 				<a href="/" class="text-blue-600 hover:underline">Knowledge Base</a>
+				<button
+					type="button"
+					class="px-3 py-1.5 border border-slate-300 rounded-lg text-slate-700 hover:bg-slate-50"
+					on:click={async () => {
+						await signOut();
+						window.location.reload();
+					}}
+				>
+					Abmelden
+				</button>
 			</nav>
 		</div>
 	</header>
@@ -276,3 +300,4 @@ let topicForm = {
 		{/if}
 	</div>
 </main>
+{/if}

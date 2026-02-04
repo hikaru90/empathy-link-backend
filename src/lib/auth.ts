@@ -170,11 +170,31 @@ kannst du sie einfach ignorieren.
   }
 }
 
+const baseURL = process.env.BETTER_AUTH_URL || process.env.BACKEND_URL || 'http://localhost:4000';
+
 export const auth = betterAuth({
+  baseURL,
   database: drizzleAdapter(db, {
     provider: "pg",
     schema,
   }),
+  socialProviders: {
+    ...(process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_SECRET && {
+      google: {
+        clientId: process.env.GOOGLE_CLIENT_ID,
+        clientSecret: process.env.GOOGLE_CLIENT_SECRET,
+      },
+    }),
+    ...(process.env.APPLE_CLIENT_ID && process.env.APPLE_CLIENT_SECRET && {
+      apple: {
+        clientId: process.env.APPLE_CLIENT_ID,
+        clientSecret: process.env.APPLE_CLIENT_SECRET,
+        ...(process.env.APPLE_APP_BUNDLE_IDENTIFIER && {
+          appBundleIdentifier: process.env.APPLE_APP_BUNDLE_IDENTIFIER,
+        }),
+      },
+    }),
+  },
   emailAndPassword: {
     enabled: true,
     requireEmailVerification: true,
@@ -189,7 +209,9 @@ export const auth = betterAuth({
     const origin = request.headers.get('origin');
     const staticOrigins = [
       'http://localhost:8081',
+      'http://localhost:4173', // Dashboard dev server
       'https://expo.clustercluster.de', // Production frontend
+      'https://appleid.apple.com', // Required for Sign in with Apple
     ];
     
     // In development, dynamically allow localhost and local network IPs on any port
@@ -225,12 +247,6 @@ export const auth = betterAuth({
       },
     },
   },
-  //   socialProviders: {
-  //     github: {
-  //       clientId: process.env.GITHUB_CLIENT_ID as string,
-  //       clientSecret: process.env.GITHUB_CLIENT_SECRET as string,
-  //     },
-  //   },
 });
 
 export const ensureAdmin = (c: Context) => {

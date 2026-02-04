@@ -1,2 +1,2 @@
-ALTER TABLE "tracked_needs" ADD COLUMN "strategies" text;--> statement-breakpoint
-ALTER TABLE "tracked_needs" ADD COLUMN "doneStrategies" text;
+ALTER TABLE "tracked_needs" ADD COLUMN IF NOT EXISTS "strategies" text;--> statement-breakpoint
+ALTER TABLE "tracked_needs" ADD COLUMN IF NOT EXISTS "doneStrategies" text;

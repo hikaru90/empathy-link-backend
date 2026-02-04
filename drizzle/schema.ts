@@ -264,6 +264,30 @@ export const feedback = pgTable("feedback", {
 	index("feedback_created_idx").using("btree", table.created.asc().nullsLast().op("timestamp_ops")),
 ]);
 
+export const userFeedback = pgTable("user_feedback", {
+	id: text().primaryKey().notNull(),
+	userId: text("user_id").notNull(),
+	type: text().notNull(), // 'bug' | 'improvement' | 'other'
+	title: text(), // optional when using NVC steps
+	message: text(), // optional when using NVC steps
+	observation: text(), // NVC step 1: Was hast du beobachtet?
+	feelings: text(), // NVC step 2: Wie hast du dich gefühlt?
+	needs: text(), // NVC step 3: Welches Bedürfnis?
+	request: text(), // NVC step 4: Hast du eine Bitte?
+	metadata: text(), // JSON: appVersion, platform, etc.
+	created: timestamp({ mode: 'string' }).defaultNow().notNull(),
+	updated: timestamp({ mode: 'string' }).defaultNow().notNull(),
+}, (table) => [
+	foreignKey({
+		columns: [table.userId],
+		foreignColumns: [user.id],
+		name: "user_feedback_user_id_user_id_fk",
+	}).onDelete("cascade"),
+	index("user_feedback_user_idx").using("btree", table.userId.asc().nullsLast().op("text_ops")),
+	index("user_feedback_type_idx").using("btree", table.type.asc().nullsLast().op("text_ops")),
+	index("user_feedback_created_idx").using("btree", table.created.asc().nullsLast().op("timestamp_ops")),
+]);
+
 export const feelings = pgTable("feelings", {
 	id: text().primaryKey().notNull(),
 	nameDE: text("name_de").notNull(),

@@ -12,6 +12,7 @@ import analyses from './routes/analyses.js';
 import bullshift from './routes/bullshift.js';
 import data from './routes/data.js';
 import garden from './routes/garden.js';
+import feedback from './routes/feedback.js';
 import learn from './routes/learn.js';
 import memories from './routes/memories.js';
 import messages from './routes/messages.js';
@@ -122,8 +123,17 @@ function translateErrorMessage(message: string): string {
 
 app.on(["POST", "GET", "OPTIONS"], "/api/auth/*", async (c) => {
 	try {
-		// Handle both Promise and direct Response returns
-		const handlerResult = auth.handler(c.req.raw);
+		let req = c.req.raw;
+		// better-call requires a JSON body for POST; sign-out sends empty body by default
+		if (req.method === 'POST' && req.url.endsWith('/sign-out')) {
+			const text = await req.text();
+			req = new Request(req.url, {
+				method: 'POST',
+				headers: req.headers,
+				body: text?.trim() ? text : '{}'
+			});
+		}
+		const handlerResult = auth.handler(req);
 		const response = handlerResult instanceof Promise ? await handlerResult : handlerResult;
 		
 		// Transform error responses to match frontend expectations
@@ -238,6 +248,7 @@ app.route('/api/analyses', analyses);
 app.route('/api/memories', memories);
 app.route('/api/nvc-knowledge', nvcKnowledge);
 app.route('/api/learn', learn);
+app.route('/api/feedback', feedback);
 app.route('/api/user', user);
 
 // Serve static files from dashboard directory (after API routes)

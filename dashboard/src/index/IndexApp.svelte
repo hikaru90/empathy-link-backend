@@ -5,6 +5,8 @@
 		type KnowledgeEntry,
 		type KnowledgePayload
 	} from '../lib/api';
+	import { getSession, signOut } from '../lib/auth';
+	import Login from '../lib/components/Login.svelte';
 
 	type FormState = KnowledgePayload & {
 		id?: string;
@@ -24,6 +26,8 @@
 	let languageFilter = 'all';
 	let categoryFilter = '';
 	let tagInput = '';
+	let session: { user: { name: string; email: string } } | null = null;
+	let authChecked = false;
 
 	let form: FormState = getDefaultForm();
 
@@ -42,6 +46,9 @@
 	}
 
 	onMount(async () => {
+		session = await getSession();
+		authChecked = true;
+		if (!session) return;
 		await Promise.all([loadCategories(), loadEntries()]);
 		loading = false;
 	});
@@ -192,6 +199,13 @@
 	}
 </script>
 
+{#if !authChecked}
+	<div class="min-h-screen bg-gray-50 flex items-center justify-center">
+		<p class="text-gray-500">Wird geladen…</p>
+	</div>
+{:else if !session}
+	<Login />
+{:else}
 <main class="min-h-screen bg-gray-50 text-gray-900">
 	<header class="bg-white border-b border-gray-200">
 		<div class="max-w-6xl mx-auto px-6 py-6 flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
@@ -200,8 +214,18 @@
 				<h1 class="text-2xl font-semibold">NVC Knowledge Manager</h1>
 				<p class="text-sm text-gray-500">Maintain and curate the prompt knowledge base.</p>
 			</div>
-			<nav class="flex gap-4 text-sm">
+			<nav class="flex gap-4 text-sm items-center">
 				<a href="/" class="text-gray-900 font-semibold">Knowledge Base</a>
+				<button
+					type="button"
+					class="px-3 py-1.5 border border-gray-300 rounded-lg text-gray-700 hover:bg-gray-50"
+					on:click={async () => {
+						await signOut();
+						window.location.reload();
+					}}
+				>
+					Abmelden
+				</button>
 			</nav>
 		</div>
 	</header>
@@ -440,4 +464,4 @@
 		{/if}
 	</div>
 </main>
-
+{/if}
