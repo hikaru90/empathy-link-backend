@@ -170,10 +170,11 @@ kannst du sie einfach ignorieren.
   }
 }
 
-const baseURL = process.env.BETTER_AUTH_URL || process.env.BACKEND_URL || 'http://localhost:4000';
+const backendUrl = (process.env.BETTER_AUTH_URL || process.env.BACKEND_URL || 'http://localhost:4000').replace(/\/$/, '');
 
 export const auth = betterAuth({
-  baseURL,
+  baseURL: backendUrl,
+  basePath: '/api/auth',
   database: drizzleAdapter(db, {
     provider: "pg",
     schema,
@@ -209,7 +210,6 @@ export const auth = betterAuth({
     const origin = request.headers.get('origin');
     const staticOrigins = [
       'http://localhost:8081',
-      'http://localhost:4173', // Dashboard dev server
       'https://expo.clustercluster.de', // Production frontend
       'https://appleid.apple.com', // Required for Sign in with Apple
     ];

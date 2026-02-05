@@ -95,76 +95,60 @@ export const nvcKnowledgeApi = {
 	}
 };
 
-export const learnApi = {
-	listCategories() {
-		return fetchWithAuth<{ categories: LearnCategory[] }>('/learn/categories');
+export const safetyApi = {
+	getStatus() {
+		return fetchWithAuth<{
+			level: number;
+			suspended: boolean;
+			showResources: boolean;
+			limits?: { dailyMessages: number; cooldownMinutes: number };
+		}>('/safety/status');
 	},
-	createCategory(payload: CategoryPayload) {
-		return fetchWithAuth('/learn/categories', {
+	getResources(lang = 'de') {
+		return fetchWithAuth<{ resources: { name: string; description?: string; phone?: string; url?: string }[] }>(
+			'/safety/resources',
+			{ searchParams: { lang } }
+		);
+	},
+	requestAppeal() {
+		return fetchWithAuth<{ success: boolean; message: string }>('/safety/appeal', {
 			method: 'POST',
-			body: JSON.stringify(payload)
 		});
 	},
-	updateCategory(id: string, payload: CategoryPayload) {
-		return fetchWithAuth(`/learn/categories/${id}`, {
-			method: 'PUT',
-			body: JSON.stringify(payload)
-		});
+	getFlaggedUsers() {
+		return fetchWithAuth<{
+			flagged: {
+				userId: string;
+				level: number;
+				reason: string;
+				detectedAt: string;
+				expiresAt?: string;
+				appealRequestedAt?: string;
+				appealStatus?: string;
+				appealReviewedAt?: string;
+				appealReviewedBy?: string;
+				summary: string;
+			}[];
+		}>('/safety/admin/list');
 	},
-	deleteCategory(id: string) {
-		return fetchWithAuth(`/learn/categories/${id}`, {
-			method: 'DELETE'
-		});
-	},
-	listTopics(options: { includeInactive?: boolean; includeVersions?: boolean } = {}) {
-		return fetchWithAuth<{ topics: LearnTopic[] }>('/learn/topics', {
-			searchParams: {
-				includeInactive: options.includeInactive ? 'true' : undefined,
-				includeVersions: options.includeVersions ? 'true' : undefined
-			}
-		});
-	},
-	getTopic(id: string) {
-		return fetchWithAuth<{ topic: LearnTopic & { versions: LearnTopicVersion[] } }>(`/learn/topics/${id}`);
-	},
-	createTopic(payload: TopicPayload) {
-		return fetchWithAuth('/learn/topics', {
+	reviewAppeal(userId: string, approved: boolean) {
+		return fetchWithAuth<{ success: boolean; message: string }>('/safety/admin/review-appeal', {
 			method: 'POST',
-			body: JSON.stringify(payload)
+			body: JSON.stringify({ userId, approved }),
 		});
 	},
-	updateTopic(id: string, payload: TopicPayload) {
-		return fetchWithAuth(`/learn/topics/${id}`, {
-			method: 'PUT',
-			body: JSON.stringify(payload)
-		});
-	},
-	deleteTopic(id: string) {
-		return fetchWithAuth(`/learn/topics/${id}`, {
-			method: 'DELETE'
-		});
-	},
-	createVersion(topicId: string, payload: VersionPayload) {
-		return fetchWithAuth(`/learn/topics/${topicId}/versions`, {
-			method: 'POST',
-			body: JSON.stringify(payload)
-		});
-	},
-	updateVersion(versionId: string, payload: VersionPayload) {
-		return fetchWithAuth(`/learn/topic-versions/${versionId}`, {
-			method: 'PUT',
-			body: JSON.stringify(payload)
-		});
-	},
-	deleteVersion(versionId: string) {
-		return fetchWithAuth(`/learn/topic-versions/${versionId}`, {
-			method: 'DELETE'
-		});
-	},
-	setCurrentVersion(topicId: string, versionId: string) {
-		return fetchWithAuth(`/learn/topics/${topicId}/current-version`, {
-			method: 'POST',
-			body: JSON.stringify({ versionId })
+};
+
+export const analyticsApi = {
+	get(days = 30) {
+		return fetchWithAuth<{
+			totalUsers: number;
+			totalChats: number;
+			loginsPerDay: { date: string; count: number }[];
+			chatsPerDay: { date: string; count: number }[];
+			days: number;
+		}>('/analytics', {
+			searchParams: { days }
 		});
 	}
 };
@@ -193,101 +177,3 @@ export interface KnowledgePayload {
 	tags?: string[] | null;
 	priority: number;
 }
-
-export interface LearnCategory {
-	id: string;
-	nameDE: string;
-	nameEN?: string | null;
-	slug: string;
-	color?: string | null;
-	descriptionDE?: string | null;
-	descriptionEN?: string | null;
-	sortOrder: number;
-	isActive: boolean;
-	created: string;
-	updated: string;
-}
-
-export interface LearnTopic {
-	id: string;
-	slug: string;
-	categoryId?: string | null;
-	category?: LearnCategory | null;
-	order: number;
-	difficulty?: string | null;
-	level?: string | null;
-	estimatedMinutes?: number | null;
-	summaryDE?: string | null;
-	summaryEN?: string | null;
-	coverImage?: string | null;
-	currentVersionId?: string | null;
-	isActive: boolean;
-	isFeatured: boolean;
-	tags?: string | null;
-	created: string;
-	updated: string;
-	versions?: LearnTopicVersion[];
-}
-
-export interface LearnTopicVersion {
-	id: string;
-	topicId: string;
-	categoryId?: string | null;
-	versionLabel?: string | null;
-	titleDE: string;
-	titleEN?: string | null;
-	descriptionDE?: string | null;
-	descriptionEN?: string | null;
-	language: string;
-	content: any;
-	image?: string | null;
-	status: string;
-	isPublished: boolean;
-	publishedAt?: string | null;
-	created: string;
-	updated: string;
-	notes?: string | null;
-}
-
-export interface CategoryPayload {
-	nameDE: string;
-	nameEN?: string | null;
-	slug?: string;
-	sortOrder?: number;
-	color?: string | null;
-	descriptionDE?: string | null;
-	descriptionEN?: string | null;
-	isActive?: boolean;
-}
-
-export interface TopicPayload {
-	slug: string;
-	categoryId?: string | null;
-	order?: number;
-	estimatedMinutes?: number | null;
-	difficulty?: string | null;
-	level?: string | null;
-	summaryDE?: string | null;
-	summaryEN?: string | null;
-	coverImage?: string | null;
-	isActive?: boolean;
-	isFeatured?: boolean;
-	tags?: string | null;
-}
-
-export interface VersionPayload {
-	versionLabel?: string | null;
-	titleDE: string;
-	titleEN?: string | null;
-	language?: string;
-	descriptionDE?: string | null;
-	descriptionEN?: string | null;
-	status?: string;
-	content?: unknown;
-	notes?: string | null;
-	isPublished?: boolean;
-	categoryId?: string | null;
-	image?: string | null;
-	metadata?: Record<string, unknown> | null;
-}
-

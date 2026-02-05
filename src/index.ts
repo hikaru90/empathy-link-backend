@@ -8,16 +8,17 @@ import { dirname, join } from 'path';
 import { fileURLToPath } from 'url';
 import { auth } from './lib/auth.js';
 import ai from './routes/ai.js';
+import analytics from './routes/analytics.js';
 import analyses from './routes/analyses.js';
 import bullshift from './routes/bullshift.js';
 import data from './routes/data.js';
 import garden from './routes/garden.js';
 import feedback from './routes/feedback.js';
-import learn from './routes/learn.js';
 import memories from './routes/memories.js';
 import messages from './routes/messages.js';
 import nvcKnowledge from './routes/nvc-knowledge.js';
 import reminders from './routes/reminders.js';
+import safety from './routes/safety.js';
 import stats from './routes/stats.js';
 import streaks from './routes/streaks.js';
 import testRuns from './routes/test-runs.js';
@@ -33,8 +34,7 @@ app.use('/*', cors({
   origin: (origin) => {
     const allowedOrigins = [
       'http://localhost:8081',
-      'http://localhost:5173', // SvelteKit dev server
-      'http://localhost:4173', // Vite dev server
+      'http://localhost:4000', // Dashboard (served by backend)
       'http://192.168.0.230:8081', // Local network access for mobile devices
       'https://expo.clustercluster.de', // Production frontend
     ];
@@ -119,6 +119,37 @@ function translateErrorMessage(message: string): string {
 	
 	// If no translation found, return original message
 	return message;
+}
+
+// Custom auth error page - show actual error from query params (better-auth default shows "Unknown")
+app.get('/api/auth/error', (c) => {
+	const error = c.req.query('error') || 'unknown';
+	const description = c.req.query('error_description') || '';
+	const state = c.req.query('state') || '';
+	const html = `<!DOCTYPE html>
+<html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Anmeldefehler</title>
+<style>body{font-family:system-ui,sans-serif;max-width:480px;margin:80px auto;padding:24px;background:#f9fafb;color:#111}
+.card{background:#fff;border-radius:12px;padding:24px;box-shadow:0 1px 3px rgba(0,0,0,.1)}
+h1{font-size:1.25rem;margin:0 0 16px;color:#dc2626}
+.code{font-family:monospace;background:#fef2f2;padding:8px 12px;border-radius:6px;font-size:0.875rem;margin:8px 0}
+.desc{color:#6b7280;font-size:0.875rem;margin:8px 0}
+a{color:#2563eb;text-decoration:none}
+a:hover{text-decoration:underline}
+.btn{margin-top:20px;display:inline-block;padding:10px 20px;background:#2563eb;color:#fff;border-radius:8px}
+.btn:hover{background:#1d4ed8}</style></head>
+<body><div class="card">
+<h1>Anmeldefehler</h1>
+<p class="code">Fehlercode: ${escapeHtml(error)}</p>
+${description ? `<p class="desc">${escapeHtml(description)}</p>` : ''}
+${['state_not_found', 'unknown'].includes(error.toLowerCase()) ? '<p class="desc">Hinweis: Starte die Anmeldung von http://localhost:4000/</p>' : ''}
+<a href="/" class="btn">Zurück zur App</a>
+</div></body></html>`;
+	return c.html(html);
+});
+
+function escapeHtml(s: string): string {
+	return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 }
 
 app.on(["POST", "GET", "OPTIONS"], "/api/auth/*", async (c) => {
@@ -241,6 +272,7 @@ app.use('/api/*', async (c: Context<Env>, next) => {
 });
 
 // Register API routes (must come before static serving)
+app.route('/api/analytics', analytics);
 app.route('/api/test-runs', testRuns);
 app.route('/api/messages', messages);
 app.route('/api/garden', garden);
@@ -253,8 +285,8 @@ app.route('/api/streaks', streaks);
 app.route('/api/analyses', analyses);
 app.route('/api/memories', memories);
 app.route('/api/nvc-knowledge', nvcKnowledge);
-app.route('/api/learn', learn);
 app.route('/api/feedback', feedback);
+app.route('/api/safety', safety);
 app.route('/api/user', user);
 
 // Serve static files from dashboard directory (after API routes)

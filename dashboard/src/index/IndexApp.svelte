@@ -216,6 +216,8 @@
 			</div>
 			<nav class="flex gap-4 text-sm items-center">
 				<a href="/" class="text-gray-900 font-semibold">Knowledge Base</a>
+				<a href="/analytics.html" class="text-gray-600 hover:text-gray-900">Analytics</a>
+				<a href="/safety.html" class="text-gray-600 hover:text-gray-900">Safety</a>
 				<button
 					type="button"
 					class="px-3 py-1.5 border border-gray-300 rounded-lg text-gray-700 hover:bg-gray-50"

@@ -6,6 +6,7 @@ import { chats as chatsTable, feelings as feelingsTable, user as userTable } fro
 import { decryptChatHistory, encryptChatHistory, type HistoryEntry } from '../lib/encryption.js';
 import { getAiResponseWithRetry, analyzePathSwitchingIntent, type PathSwitchAnalysis } from '../lib/gemini.js';
 import { createPathMarker, getSystemPromptForPath, type PathState, CONVERSATION_PATHS } from '../lib/paths.js';
+import { getSafetyLevel, processSafetyDetection } from '../lib/safety.js';
 import { analyzeChat, extractMemories } from '../lib/ai-tools.js';
 import { formatMemoriesForPrompt } from '../lib/memory.js';
 import { getToolCalls, executeTools, formatToolResults } from '../lib/tool-caller.js';
@@ -18,6 +19,14 @@ bullshift.post('/initChat', async (c: Context) => {
 	const user = c.get('user');
 	if (!user) {
 		return c.json({ error: 'Unauthorized' }, 401);
+	}
+
+	const safetyLevel = await getSafetyLevel(user.id);
+	if (safetyLevel >= 4) {
+		return c.json({
+			error: 'safety_suspended',
+			message: 'Your access has been temporarily limited. Please see the resources we\'ve provided for professional support.',
+		}, 403);
 	}
 
 	try {
@@ -197,6 +206,15 @@ bullshift.post('/send', async (c: Context) => {
 
 		if (!chatId || !message) {
 			return c.json({ error: 'chatId and message are required' }, 400);
+		}
+
+		// Safety: run detection (never stores content)
+		const { level } = await processSafetyDetection(user.id, message);
+		if (level >= 4) {
+			return c.json({
+				error: 'safety_suspended',
+				message: 'Your access has been temporarily limited. Please see the resources we\'ve provided for professional support.',
+			}, 403);
 		}
 
 		console.log('send called for chat:', chatId);

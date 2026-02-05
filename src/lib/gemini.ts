@@ -306,3 +306,60 @@ Analysiere diese Nachricht und bestimme, ob der Nutzer vom aktuellen Pfad "${cur
 		};
 	}
 }
+
+/** Safety classification result - ONLY severity, never message content */
+export type SafetySeverity = 'none' | 'moderate' | 'severe';
+
+/**
+ * AI-based safety classification. Returns severity only - never stores or logs message content.
+ * Use this instead of keyword lists to detect mental health crisis, self-harm, or suicidal ideation.
+ */
+export async function classifySafetyRisk(message: string): Promise<SafetySeverity> {
+	try {
+		const ai = getAiClient();
+
+		const systemPrompt = `Du bist ein Experte für psychische Gesundheit und Krisenerkennung. Deine Aufgabe: Beurteile EINZIG die Schwere von Hinweisen auf psychische Instabilität, Selbstverletzung oder Suizidalität in einer Nutzernachricht.
+
+WICHTIG: Du speicherst oder loggst NIEMALS den Nachrichteninhalt. Du gibst NUR einen von drei Werten zurück.
+
+Schweregrade:
+- "none": Keine Hinweise auf Krise, Selbstverletzung oder Suizidalität. Normale emotionale Belastung, Traurigkeit oder Stress sind KEIN "moderate".
+- "moderate": Deutliche Anzeichen von Hoffnungslosigkeit, schwerer Verzweiflung, oder vage Andeutungen, die auf Krise hindeuten könnten. Noch keine klare Absicht.
+- "severe": Klare Hinweise auf Selbstverletzung, Suizidgedanken, konkrete Pläne oder unmittelbare Krise. Nutzer äußert explizit oder implizit den Wunsch, sich zu verletzen oder das Leben zu beenden.
+
+Beispiele (nur zur Orientierung, nicht exhaustive):
+- "Ich bin traurig" → none
+- "Ich fühle mich hoffnungslos" → moderate
+- "Ich will nicht mehr" / "Es hat keinen Sinn" → moderate
+- "Ich denke daran, mir etwas anzutun" → severe
+- "Ich will mich umbringen" / "Suizid" / "sich ritzen" → severe
+
+Antworte AUSSCHLIESSLICH mit einem JSON-Objekt, sonst nichts:
+{"severity":"none"|"moderate"|"severe"}`;
+
+		const model = ai.chats.create({
+			model: 'gemini-2.5-flash',
+			config: {
+				temperature: 0.1,
+				systemInstruction: systemPrompt
+			}
+		});
+
+		const result = await model.sendMessage({ message: `Nachricht zur Bewertung:\n${message}` });
+		const responseText = result.text || '{"severity":"none"}';
+
+		let cleaned = responseText.trim();
+		if (cleaned.startsWith('```json')) cleaned = cleaned.replace(/^```json\s*/, '').replace(/\s*```$/, '');
+		else if (cleaned.startsWith('```')) cleaned = cleaned.replace(/^```\s*/, '').replace(/\s*```$/, '');
+
+		const parsed = JSON.parse(cleaned) as { severity?: string };
+		const severity = parsed?.severity;
+		if (severity === 'severe' || severity === 'moderate') {
+			return severity;
+		}
+		return 'none';
+	} catch (error) {
+		console.error('Safety classification error (no content logged):', (error as Error).message);
+		return 'none'; // Fail open - do not restrict on AI failure
+	}
+}

@@ -10,18 +10,10 @@ export default defineConfig({
 		rollupOptions: {
 			input: {
 				index: path.resolve(__dirname, 'index.html'),
-				learn: path.resolve(__dirname, 'learn.html')
+				analytics: path.resolve(__dirname, 'analytics.html'),
+				safety: path.resolve(__dirname, 'safety.html')
 			}
 		}
 	},
-	server: {
-		port: 4173,
-		proxy: {
-			'/api': {
-				target: 'http://localhost:4000',
-				changeOrigin: true
-			}
-		}
-	}
 });
 

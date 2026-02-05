@@ -106,6 +106,20 @@
       "when": 1769598663035,
       "tag": "0014_hesitant_mentallo",
       "breakpoints": true
+    },
+    {
+      "idx": 15,
+      "version": "7",
+      "when": 1770288923563,
+      "tag": "0015_add_safety_mechanism",
+      "breakpoints": true
+    },
+    {
+      "idx": 16,
+      "version": "7",
+      "when": 1770500000000,
+      "tag": "0017_safety_appeal_human_review",
+      "breakpoints": true
     }
   ]
 }

@@ -1,6 +1,6 @@
 # Dashboard Frontend
 
-This folder contains a small multi-page Svelte app that powers the backend dashboards (`/index.html` for the NVC knowledge base manager and `/learn.html` for the learn CMS).
+This folder contains a small multi-page Svelte app that powers the backend dashboards (`/index.html` for the NVC knowledge base manager and `/analytics.html` for analytics).
 
 ## Development
 
@@ -13,7 +13,7 @@ npm install --prefix dashboard
 npm run dashboard:dev
 ```
 
-The dev server runs on http://localhost:4173 by default. The Hono backend will continue to serve the compiled `dist` output when running `npm run dev`.
+The dashboard is served by the backend at http://localhost:4000 when you run `npm run dev`. Run `npm run dashboard:dev` to watch and rebuild on changes.
 
 ## Building
 

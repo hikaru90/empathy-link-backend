@@ -8,10 +8,11 @@
     "drizzle:push": "npx drizzle-kit push",
     "drizzle:migrate": "npx drizzle-kit migrate",
     "drizzle:generate": "npx drizzle-kit generate",
-    "dashboard:dev": "npm run dev --prefix dashboard",
+    "dashboard:dev": "npm run build --prefix dashboard -- --watch",
     "dashboard:build": "npm run build --prefix dashboard",
     "dashboard:check": "npm run check --prefix dashboard",
-    "dashboard:start": "npm run start --prefix dashboard"
+    "dashboard:start": "npm run start --prefix dashboard",
+    "seed:crisis": "npx tsx scripts/seed-crisis-resources.ts"
   },
   "dependencies": {
     "@getbrevo/brevo": "^3.0.1",

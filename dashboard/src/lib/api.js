@@ -77,76 +77,30 @@ export const nvcKnowledgeApi = {
         return fetchWithAuth('/nvc-knowledge/meta/tags');
     }
 };
-export const learnApi = {
-    listCategories() {
-        return fetchWithAuth('/learn/categories');
+export const safetyApi = {
+    getStatus() {
+        return fetchWithAuth('/safety/status');
     },
-    createCategory(payload) {
-        return fetchWithAuth('/learn/categories', {
+    getResources(lang = 'de') {
+        return fetchWithAuth('/safety/resources', { searchParams: { lang } });
+    },
+    requestAppeal() {
+        return fetchWithAuth('/safety/appeal', { method: 'POST' });
+    },
+    getFlaggedUsers() {
+        return fetchWithAuth('/safety/admin/list');
+    },
+    reviewAppeal(userId, approved) {
+        return fetchWithAuth('/safety/admin/review-appeal', {
             method: 'POST',
-            body: JSON.stringify(payload)
+            body: JSON.stringify({ userId, approved }),
         });
     },
-    updateCategory(id, payload) {
-        return fetchWithAuth(`/learn/categories/${id}`, {
-            method: 'PUT',
-            body: JSON.stringify(payload)
-        });
-    },
-    deleteCategory(id) {
-        return fetchWithAuth(`/learn/categories/${id}`, {
-            method: 'DELETE'
-        });
-    },
-    listTopics(options = {}) {
-        return fetchWithAuth('/learn/topics', {
-            searchParams: {
-                includeInactive: options.includeInactive ? 'true' : undefined,
-                includeVersions: options.includeVersions ? 'true' : undefined
-            }
-        });
-    },
-    getTopic(id) {
-        return fetchWithAuth(`/learn/topics/${id}`);
-    },
-    createTopic(payload) {
-        return fetchWithAuth('/learn/topics', {
-            method: 'POST',
-            body: JSON.stringify(payload)
-        });
-    },
-    updateTopic(id, payload) {
-        return fetchWithAuth(`/learn/topics/${id}`, {
-            method: 'PUT',
-            body: JSON.stringify(payload)
-        });
-    },
-    deleteTopic(id) {
-        return fetchWithAuth(`/learn/topics/${id}`, {
-            method: 'DELETE'
-        });
-    },
-    createVersion(topicId, payload) {
-        return fetchWithAuth(`/learn/topics/${topicId}/versions`, {
-            method: 'POST',
-            body: JSON.stringify(payload)
-        });
-    },
-    updateVersion(versionId, payload) {
-        return fetchWithAuth(`/learn/topic-versions/${versionId}`, {
-            method: 'PUT',
-            body: JSON.stringify(payload)
-        });
-    },
-    deleteVersion(versionId) {
-        return fetchWithAuth(`/learn/topic-versions/${versionId}`, {
-            method: 'DELETE'
-        });
-    },
-    setCurrentVersion(topicId, versionId) {
-        return fetchWithAuth(`/learn/topics/${topicId}/current-version`, {
-            method: 'POST',
-            body: JSON.stringify({ versionId })
+};
+export const analyticsApi = {
+    get(days = 30) {
+        return fetchWithAuth('/analytics', {
+            searchParams: { days }
         });
     }
 };

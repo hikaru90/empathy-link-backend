@@ -599,3 +599,55 @@ export const learnTopicVersions = pgTable("learn_topic_versions", {
 	index("learn_topic_versions_topic_idx").using("btree", table.topicId.asc().nullsLast().op("uuid_ops")),
 	index("learn_topic_versions_category_idx").using("btree", table.categoryId.asc().nullsLast().op("uuid_ops")),
 ]);
+
+export const userSafetyFlags = pgTable("user_safety_flags", {
+	id: uuid().defaultRandom().primaryKey().notNull(),
+	userId: text("user_id").notNull(),
+	level: integer().default(0).notNull(), // 0=none, 1=watch, 2=caution, 3=restricted, 4=suspended
+	reason: text().notNull(), // ai_score, ai_score_severe - never stores content
+	detectedAt: timestamp("detected_at", { mode: 'string' }).defaultNow().notNull(),
+	expiresAt: timestamp("expires_at", { mode: 'string' }),
+	appealRequestedAt: timestamp("appeal_requested_at", { mode: 'string' }),
+	appealStatus: text("appeal_status"), // 'pending' | 'approved' | 'denied'
+	appealReviewedAt: timestamp("appeal_reviewed_at", { mode: 'string' }),
+	appealReviewedBy: text("appeal_reviewed_by"), // admin user id
+}, (table) => [
+	foreignKey({
+		columns: [table.userId],
+		foreignColumns: [user.id],
+		name: "user_safety_flags_user_id_fk",
+	}).onDelete("cascade"),
+	index("user_safety_flags_user_idx").using("btree", table.userId.asc().nullsLast().op("text_ops")),
+	index("user_safety_flags_level_idx").using("btree", table.level.asc().nullsLast().op("int4_ops")),
+]);
+
+export const safetyDetectionEvents = pgTable("safety_detection_events", {
+	id: uuid().defaultRandom().primaryKey().notNull(),
+	userId: text("user_id").notNull(),
+	reason: text().notNull(),
+	detectedAt: timestamp("detected_at", { mode: 'string' }).defaultNow().notNull(),
+}, (table) => [
+	foreignKey({
+		columns: [table.userId],
+		foreignColumns: [user.id],
+		name: "safety_detection_events_user_id_fk",
+	}).onDelete("cascade"),
+	index("safety_detection_events_user_idx").using("btree", table.userId.asc().nullsLast().op("text_ops")),
+	index("safety_detection_events_detected_idx").using("btree", table.detectedAt.asc().nullsLast().op("timestamp_ops")),
+]);
+
+export const crisisResources = pgTable("crisis_resources", {
+	id: uuid().defaultRandom().primaryKey().notNull(),
+	language: text().notNull().default('de'),
+	region: text(), // e.g. 'DE', 'AT', 'international'
+	name: text().notNull(),
+	description: text(),
+	phone: text(),
+	url: text(),
+	sortOrder: integer("sort_order").default(0).notNull(),
+	isActive: boolean("is_active").default(true).notNull(),
+	created: timestamp({ mode: 'string' }).defaultNow().notNull(),
+	updated: timestamp({ mode: 'string' }).defaultNow().notNull(),
+}, (table) => [
+	index("crisis_resources_language_idx").using("btree", table.language.asc().nullsLast().op("text_ops")),
+]);
