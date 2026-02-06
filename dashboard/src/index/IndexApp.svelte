@@ -28,6 +28,8 @@
 	let tagInput = '';
 	let session: { user: { name: string; email: string } } | null = null;
 	let authChecked = false;
+	let syncLearnLoading = false;
+	let syncLearnResult: { created: number; updated: number; skipped: number; errors: number; debug?: { totalFetched: number; publishedCount: number; topicCount: number } } | null = null;
 
 	let form: FormState = getDefaultForm();
 
@@ -197,6 +199,21 @@
 			return value;
 		}
 	}
+
+	async function syncLearnContent() {
+		syncLearnLoading = true;
+		syncLearnResult = null;
+		error = '';
+		try {
+			const result = await nvcKnowledgeApi.syncLearn();
+			syncLearnResult = result;
+			await loadEntries();
+		} catch (err) {
+			handleError(err);
+		} finally {
+			syncLearnLoading = false;
+		}
+	}
 </script>
 
 {#if !authChecked}
@@ -350,7 +367,34 @@
 						<h2 class="text-xl font-semibold">Knowledge Entries ({entries.length})</h2>
 						<p class="text-sm text-gray-500">Filter, search, and edit knowledge items.</p>
 					</div>
-					<div class="flex gap-3">
+					<div class="flex gap-3 flex-wrap items-center">
+						<button
+							type="button"
+							class="px-4 py-2 border border-amber-300 rounded-lg text-amber-800 bg-amber-50 hover:bg-amber-100 disabled:opacity-60 disabled:cursor-not-allowed flex items-center gap-2"
+							on:click={syncLearnContent}
+							disabled={syncLearnLoading}
+						>
+							{#if syncLearnLoading}
+								<svg class="animate-spin h-4 w-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" aria-hidden="true">
+									<circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+									<path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+								</svg>
+								Syncing…
+							{:else}
+								Sync Learn → Knowledge
+							{/if}
+						</button>
+						{#if syncLearnResult}
+							<span class="text-sm text-gray-500">
+								{syncLearnResult.created} created, {syncLearnResult.updated} updated, {syncLearnResult.skipped} skipped
+								{#if syncLearnResult.errors > 0}
+									<span class="text-rose-600">, {syncLearnResult.errors} errors</span>
+								{/if}
+								{#if syncLearnResult.debug}
+									<span class="text-gray-400"> (PB: {syncLearnResult.debug.totalFetched} versions, {syncLearnResult.debug.publishedCount} published)</span>
+								{/if}
+							</span>
+						{/if}
 						<button class="px-4 py-2 border rounded-lg text-gray-600" on:click={loadEntries}>
 							Refresh
 						</button>

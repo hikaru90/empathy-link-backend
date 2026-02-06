@@ -75,6 +75,9 @@ export const nvcKnowledgeApi = {
     },
     getTags() {
         return fetchWithAuth('/nvc-knowledge/meta/tags');
+    },
+    syncLearn() {
+        return fetchWithAuth('/nvc-knowledge/sync-learn', { method: 'POST' });
     }
 };
 export const safetyApi = {

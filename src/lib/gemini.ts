@@ -203,6 +203,7 @@ Verfügbare Pfade:
 - other_empathy: Fremd-Empathie (Empathie für andere Personen entwickeln)
 - action_planning: Handlungsplanung (konkrete Schritte planen)
 - conflict_resolution: Konfliktlösung (Probleme mit anderen lösen)
+- teach: GFK lernen (Konzepte erklären, Lernmodule empfehlen)
 - memory: Erinnerungen ABRUFEN (gespeicherte Informationen über den Nutzer anzeigen)
 - feedback: Gespräch beenden (Feedback sammeln und Gespräch abschließen)
 
@@ -218,6 +219,7 @@ FALL A: Nutzer ist im Pfad "idle" (Gesprächsführung):
   - "andere Person" / "jemand anderen" / "Empathie für X" → other_empathy
   - "was tun" / "Handlung" / "Schritte" / "Plan" → action_planning
   - "Konflikt" / "Streit" / "Problem lösen" → conflict_resolution
+  - "erklären" / "lernen" / "was ist" / "GFK" / "Bedürfnisse" / "Gefühle" (als Konzept) → teach
   - "was erinnerst du" / "was weißt du über mich" / "erzähl mir von früher" → memory (NUR zum Abrufen!)
   - "beenden" / "fertig" / "Schluss" → feedback
   - "merke dir" / "vergiss nicht" / "merken" → NICHT wechseln, im idle bleiben (Speichern passiert automatisch)
@@ -245,6 +247,9 @@ Aktueller Pfad = idle, Nachricht = "kannst du dir merken, dass ich Otter mag?"
 
 Aktueller Pfad = idle, Nachricht = "was erinnerst du dich über mich?"
 → shouldSwitch: true, suggestedPath: "memory", confidence: 95 (Nutzer möchte Erinnerungen abrufen)
+
+Aktueller Pfad = idle, Nachricht = "erklär mir bitte was Bedürfnisse in der GFK sind"
+→ shouldSwitch: true, suggestedPath: "teach", confidence: 95
 
 Antworte ausschließlich mit einem JSON-Objekt:
 {

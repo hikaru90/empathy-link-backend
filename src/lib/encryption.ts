@@ -147,6 +147,14 @@ export function safeEncrypt(text: string): string {
 	}
 }
 
+// NVC knowledge item attached to model messages when AI suggests learn topics
+export interface NvcKnowledgeRecommendation {
+	title: string;
+	learnTopicSlug: string;
+	learnPath: string;
+	pocketbaseVersionId?: string | null;
+}
+
 // Type definitions for chat history
 export interface HistoryEntry {
 	role: 'user' | 'model';
@@ -154,6 +162,7 @@ export interface HistoryEntry {
 	timestamp: number;
 	hidden?: boolean;
 	pathMarker?: any;
+	nvcKnowledge?: NvcKnowledgeRecommendation[];
 }
 
 /**

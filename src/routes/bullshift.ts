@@ -10,6 +10,7 @@ import { getSafetyLevel, processSafetyDetection } from '../lib/safety.js';
 import { analyzeChat, extractMemories } from '../lib/ai-tools.js';
 import { formatMemoriesForPrompt } from '../lib/memory.js';
 import { getToolCalls, executeTools, formatToolResults } from '../lib/tool-caller.js';
+import { getLearnPath } from '../lib/nvc-knowledge.js';
 
 const db = drizzle(process.env.DATABASE_URL!);
 const bullshift = new Hono();
@@ -241,9 +242,11 @@ bullshift.post('/send', async (c: Context) => {
 		let pathSwitched = false;
 		let newPathId: string | null = null;
 		
-		// Initialize memory variables early so they can be set during path switch
+		// Initialize memory and NVC knowledge variables early so they can be set during path switch
 		let memoryContext = '';
 		let relevantMemories: any[] = [];
+		let nvcKnowledgeContext = '';
+		let relevantNVCKnowledge: any[] = [];
 
 		try {
 			// Prepare recent conversation history for analysis
@@ -358,6 +361,30 @@ bullshift.post('/send', async (c: Context) => {
 							memoryContext = '- Fehler beim Abrufen der Erinnerungen';
 						}
 					}
+					// If switched to teach path, fetch NVC knowledge for user message
+					if (nextPath === 'teach') {
+						try {
+							console.log('📚 Path switched to teach - fetching NVC knowledge');
+							const { retrieveNVCKnowledge } = await import('../lib/ai-tools.js');
+							const result = await retrieveNVCKnowledge(message, 'de', { limit: 5, minSimilarity: 0.5 });
+							relevantNVCKnowledge = result.knowledgeEntries || [];
+							if (relevantNVCKnowledge.length > 0) {
+								const knowledgeEntries = relevantNVCKnowledge.map((entry: any) => {
+									const learnRec = entry.learnTopicSlug
+										? `\n_Lernmodul: /learn → ${entry.title} (Slug: ${entry.learnTopicSlug})_`
+										: '';
+									return `**${entry.title}** (Ähnlichkeit: ${((entry.similarity || 0) * 100).toFixed(0)}%)\n${entry.content}${entry.source ? `\n_Quelle: ${entry.source}_` : ''}${learnRec}`;
+								}).join('\n\n');
+								nvcKnowledgeContext = `\n\n**RELEVANTES GFK-WISSEN FÜR DIESE FRAGE:**\n${knowledgeEntries}\n\nErkläre die Konzepte verständlich. Wenn learnTopicSlug angegeben ist, empfehle dem Nutzer das entsprechende Lernmodul im /learn-Bereich.`;
+								console.log(`✅ Fetched ${relevantNVCKnowledge.length} NVC knowledge entries after path switch to teach`);
+							} else {
+								nvcKnowledgeContext = '\n\n**HINWEIS:** Keine passenden GFK-Wissenseinträge gefunden. Sage dem Nutzer ehrlich, dass du zu diesem Thema nichts Passendes gefunden hast.';
+							}
+						} catch (teachError) {
+							console.error('❌ Error fetching NVC knowledge after path switch to teach:', teachError);
+							nvcKnowledgeContext = '- Fehler beim Abrufen des GFK-Wissens.';
+						}
+					}
 				}
 			} else if (pathSwitchAnalysis) {
 				console.log('❌ No path switch - AI decision:', pathSwitchAnalysis.reason);
@@ -369,9 +396,7 @@ bullshift.post('/send', async (c: Context) => {
 
 		// TOOL CALLING: Use AI to decide which tools to call
 		let toolResults: any[] = [];
-		// memoryContext and relevantMemories are already declared above (may have been set during path switch)
-		let nvcKnowledgeContext = '';
-		let relevantNVCKnowledge: any[] = [];
+		// memoryContext, relevantMemories, nvcKnowledgeContext, relevantNVCKnowledge already declared above
 		let nvcExtraction: { observation: string | null; feelings: string[]; needs: string[]; request: string | null } | null = null;
 		let pathSwitchAnalysisFromTool: PathSwitchAnalysis | null = null;
 
@@ -426,6 +451,32 @@ bullshift.post('/send', async (c: Context) => {
 			}
 		}
 
+		// SPECIAL HANDLING FOR TEACH PATH: Always fetch NVC knowledge from vector DB
+		if (activePath === 'teach' && relevantNVCKnowledge.length === 0) {
+			try {
+				console.log('📚 Teach path active - fetching NVC knowledge for user message');
+				const { retrieveNVCKnowledge } = await import('../lib/ai-tools.js');
+				const result = await retrieveNVCKnowledge(message, 'de', { limit: 5, minSimilarity: 0.5 });
+				relevantNVCKnowledge = result.knowledgeEntries || [];
+				if (relevantNVCKnowledge.length > 0) {
+					const knowledgeEntries = relevantNVCKnowledge.map((entry: any) => {
+						const learnRec = entry.learnTopicSlug
+							? `\n_Lernmodul: /learn → ${entry.title} (Slug: ${entry.learnTopicSlug})_`
+							: '';
+						return `**${entry.title}** (Ähnlichkeit: ${((entry.similarity || 0) * 100).toFixed(0)}%)\n${entry.content}${entry.source ? `\n_Quelle: ${entry.source}_` : ''}${learnRec}`;
+					}).join('\n\n');
+					nvcKnowledgeContext = `\n\n**RELEVANTES GFK-WISSEN FÜR DIESE FRAGE:**\n${knowledgeEntries}\n\nErkläre die Konzepte verständlich. Wenn learnTopicSlug angegeben ist, empfehle dem Nutzer das entsprechende Lernmodul im /learn-Bereich.`;
+					console.log(`✅ Found ${relevantNVCKnowledge.length} relevant NVC knowledge entries for teach path`);
+				} else {
+					nvcKnowledgeContext = '\n\n**HINWEIS:** Keine passenden GFK-Wissenseinträge gefunden. Sage dem Nutzer ehrlich, dass du zu diesem Thema nichts Passendes gefunden hast, und schlage vor, die Frage anders zu formulieren oder einen anderen Gesprächspfad zu wählen.';
+					console.log('⚠️ No NVC knowledge found for teach path query');
+				}
+			} catch (teachError) {
+				console.error('❌ Error fetching NVC knowledge for teach path:', teachError);
+				nvcKnowledgeContext = '- Fehler beim Abrufen des GFK-Wissens. Bitte versuche es später erneut.';
+			}
+		}
+
 		try {
 			// Prepare recent conversation history for tool calling
 			const decryptedHistory = chatRecord[0].history ? JSON.parse(chatRecord[0].history) : [];
@@ -439,8 +490,8 @@ bullshift.post('/send', async (c: Context) => {
 				}))
 				.filter((m: any) => (m.role === 'user' || m.role === 'assistant') && m.content.trim().length > 0);
 
-			// Get tool calls from AI (skip if we're in memory path and already have memories)
-			if (activePath !== 'memory') {
+			// Get tool calls from AI (skip if we're in memory path and already have memories, or teach path and already have NVC knowledge)
+			if (activePath !== 'memory' && !(activePath === 'teach' && nvcKnowledgeContext)) {
 				const toolCallResponse = await getToolCalls({
 					message,
 					history: recentHistory,
@@ -543,6 +594,30 @@ bullshift.post('/send', async (c: Context) => {
 											} catch (memoryError) {
 												console.error('❌ Error fetching memories after path switch:', memoryError);
 												memoryContext = '- Fehler beim Abrufen der Erinnerungen';
+											}
+										}
+										// If switched to teach path, fetch NVC knowledge for user message
+										if (nextPath === 'teach' && relevantNVCKnowledge.length === 0) {
+											try {
+												console.log('📚 Path switched to teach - fetching NVC knowledge');
+												const { retrieveNVCKnowledge } = await import('../lib/ai-tools.js');
+												const result = await retrieveNVCKnowledge(message, 'de', { limit: 5, minSimilarity: 0.5 });
+												relevantNVCKnowledge = result.knowledgeEntries || [];
+												if (relevantNVCKnowledge.length > 0) {
+													const knowledgeEntries = relevantNVCKnowledge.map((entry: any) => {
+														const learnRec = entry.learnTopicSlug
+															? `\n_Lernmodul: /learn → ${entry.title} (Slug: ${entry.learnTopicSlug})_`
+															: '';
+														return `**${entry.title}** (Ähnlichkeit: ${((entry.similarity || 0) * 100).toFixed(0)}%)\n${entry.content}${entry.source ? `\n_Quelle: ${entry.source}_` : ''}${learnRec}`;
+													}).join('\n\n');
+													nvcKnowledgeContext = `\n\n**RELEVANTES GFK-WISSEN FÜR DIESE FRAGE:**\n${knowledgeEntries}\n\nErkläre die Konzepte verständlich. Wenn learnTopicSlug angegeben ist, empfehle dem Nutzer das entsprechende Lernmodul im /learn-Bereich.`;
+													console.log(`✅ Fetched ${relevantNVCKnowledge.length} NVC knowledge entries after path switch to teach`);
+												} else {
+													nvcKnowledgeContext = '\n\n**HINWEIS:** Keine passenden GFK-Wissenseinträge gefunden. Sage dem Nutzer ehrlich, dass du zu diesem Thema nichts Passendes gefunden hast.';
+												}
+											} catch (teachError) {
+												console.error('❌ Error fetching NVC knowledge after path switch to teach:', teachError);
+												nvcKnowledgeContext = '- Fehler beim Abrufen des GFK-Wissens.';
 											}
 										}
 									}
@@ -690,11 +765,30 @@ bullshift.post('/send', async (c: Context) => {
 			}, 500);
 		}
 
+		// Build nvcKnowledge: return only the single most fitting learn resource, and only if it fits well enough
+		const MIN_SIMILARITY_FOR_LEARN_LINK = 0.65;
+		const candidatesWithLearn = (relevantNVCKnowledge || [])
+			.filter((e: any) => e.learnTopicSlug || e.learnPath);
+		const bestMatch = candidatesWithLearn[0]; // Results are ordered by similarity, highest first
+		const similarity = bestMatch?.similarity ?? 0;
+		const learnRecommendations =
+			bestMatch && similarity >= MIN_SIMILARITY_FOR_LEARN_LINK
+				? [
+						{
+							title: bestMatch.title || 'Untitled',
+							learnTopicSlug: bestMatch.learnTopicSlug || '',
+							learnPath: bestMatch.learnPath || (bestMatch.learnTopicSlug ? getLearnPath(bestMatch.learnTopicSlug) : ''),
+							pocketbaseVersionId: bestMatch.pocketbaseVersionId ?? null
+						}
+					]
+				: [];
+
 		// Add AI response to history
 		const modelMessage: HistoryEntry = {
 			role: 'model',
 			parts: [{ text: aiResponse }],
-			timestamp: Date.now()
+			timestamp: Date.now(),
+			...(learnRecommendations.length > 0 && { nvcKnowledge: learnRecommendations })
 		};
 
 		const updatedHistory = [...historyWithUserMessage, modelMessage];

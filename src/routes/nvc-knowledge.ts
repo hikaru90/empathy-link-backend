@@ -11,6 +11,7 @@ import {
 	listNVCKnowledge,
 	getNVCCategories,
 	getNVCTags,
+	syncLearnContentToNVCKnowledge,
 	type CreateNVCKnowledgeInput,
 	type SearchOptions
 } from '../lib/nvc-knowledge.js';
@@ -52,6 +53,30 @@ nvcKnowledge.get('/', async (c: Context) => {
 	} catch (error) {
 		console.error('Error listing NVC knowledge:', error);
 		return c.json({ error: 'Failed to list NVC knowledge' }, 500);
+	}
+});
+
+// POST /api/nvc-knowledge/sync-learn - Sync learn section content to nvc_knowledge
+nvcKnowledge.post('/sync-learn', async (c: Context) => {
+	const user = c.get('user');
+	if (!user) {
+		return c.json({ error: 'Unauthorized' }, 401);
+	}
+	if (!isAdmin(user)) {
+		return c.json({ error: 'Admin access required' }, 403);
+	}
+	try {
+		const stats = await syncLearnContentToNVCKnowledge();
+		return c.json({
+			created: stats.created,
+			updated: stats.updated,
+			skipped: stats.skipped,
+			errors: stats.errors,
+			debug: stats.debug
+		});
+	} catch (error) {
+		console.error('Error syncing learn content:', error);
+		return c.json({ error: 'Failed to sync learn content' }, 500);
 	}
 });
 

@@ -92,6 +92,12 @@ export const nvcKnowledgeApi = {
 	},
 	getTags() {
 		return fetchWithAuth<{ tags: string[] }>('/nvc-knowledge/meta/tags');
+	},
+	syncLearn() {
+		return fetchWithAuth<{ created: number; updated: number; skipped: number; errors: number }>(
+			'/nvc-knowledge/sync-learn',
+			{ method: 'POST' }
+		);
 	}
 };
 

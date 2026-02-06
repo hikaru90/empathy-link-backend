@@ -519,10 +519,14 @@ export const nvcKnowledge = pgTable("nvc_knowledge", {
 	embedding: vector({ dimensions: 768 }),
 	category: text().notNull(), // e.g., "principles", "examples", "techniques"
 	subcategory: text(), // optional, e.g., "observation", "feelings", "needs"
-	source: text(), // e.g., "Marshall Rosenberg", "NVC Foundation"
+	source: text(), // e.g., "Marshall Rosenberg", "NVC Foundation", "learn"
 	tags: text().array(), // language-agnostic tags
 	priority: integer().default(3).notNull(), // 1-5 for relevance ranking
 	isActive: boolean("is_active").default(true).notNull(), // for soft deletion/archiving
+	learnTopicId: uuid("learn_topic_id").references(() => learnTopics.id, { onDelete: 'set null' }),
+	learnTopicVersionId: uuid("learn_topic_version_id").references(() => learnTopicVersions.id, { onDelete: 'set null' }),
+	learnTopicSlug: text("learn_topic_slug"), // from PocketBase topic slug, for recommendations
+	pocketbaseVersionId: text("pocketbase_version_id"), // for deduplication when syncing from PocketBase
 	createdBy: text("created_by"), // user_id, nullable for system entries
 	created: timestamp({ mode: 'string' }).defaultNow().notNull(),
 	updated: timestamp({ mode: 'string' }).defaultNow().notNull(),

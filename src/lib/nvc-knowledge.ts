@@ -3,9 +3,9 @@
  * Supports internationalization (DE/EN) with separate embeddings per language
  */
 
-import { GoogleGenAI } from '@google/genai';
+import { GoogleGenAI, Type } from '@google/genai';
 import { db } from './db.js';
-import { nvcKnowledge } from '../../drizzle/schema.js';
+import { nvcKnowledge, learnTopics, learnTopicVersions } from '../../drizzle/schema.js';
 import { sql, desc, and, eq, or, inArray, like } from 'drizzle-orm';
 import 'dotenv/config';
 import { randomUUID } from 'crypto';
@@ -52,6 +52,10 @@ export interface CreateNVCKnowledgeInput {
 	source?: string | null;
 	tags?: string[] | null;
 	priority?: number;
+	learnTopicId?: string | null;
+	learnTopicVersionId?: string | null;
+	learnTopicSlug?: string | null;
+	pocketbaseVersionId?: string | null;
 	createdBy?: string | null;
 	generateEmbedding?: boolean; // Default true
 }
@@ -133,13 +137,16 @@ export async function createNVCKnowledgeEntry(
 				INSERT INTO nvc_knowledge (
 					knowledge_id, language, title, content, embedding,
 					category, subcategory, source, tags, priority,
-					is_active, created_by, created, updated
+					learn_topic_id, learn_topic_version_id, learn_topic_slug, pocketbase_version_id, is_active, created_by, created, updated
 				) VALUES (
 					${knowledgeId}::uuid, ${input.language}, ${input.title}, ${input.content},
 					${JSON.stringify(embedding)}::vector,
 					${input.category}, ${input.subcategory || null}, ${input.source || null},
 					${input.tags ? sql.raw(`ARRAY[${input.tags.map(t => `'${t.replace(/'/g, "''")}'`).join(',')}]::text[]`) : sql`NULL`},
-					${input.priority || 3}, true, ${input.createdBy || null},
+					${input.priority || 3},
+					${input.learnTopicId || null}::uuid, ${input.learnTopicVersionId || null}::uuid,
+					${input.learnTopicSlug || null}, ${input.pocketbaseVersionId || null},
+					true, ${input.createdBy || null},
 					NOW(), NOW()
 				) RETURNING *
 			`);
@@ -172,13 +179,16 @@ export async function createNVCKnowledgeEntry(
 				INSERT INTO nvc_knowledge (
 					knowledge_id, language, title, content, embedding,
 					category, subcategory, source, tags, priority,
-					is_active, created_by, created, updated
+					learn_topic_id, learn_topic_version_id, learn_topic_slug, pocketbase_version_id, is_active, created_by, created, updated
 				) VALUES (
 					${knowledgeId}::uuid, ${input.language}, ${input.title}, ${input.content},
 					NULL,
 					${input.category}, ${input.subcategory || null}, ${input.source || null},
 					${input.tags ? sql.raw(`ARRAY[${input.tags.map(t => `'${t.replace(/'/g, "''")}'`).join(',')}]::text[]`) : sql`NULL`},
-					${input.priority || 3}, true, ${input.createdBy || null},
+					${input.priority || 3},
+					${input.learnTopicId || null}::uuid, ${input.learnTopicVersionId || null}::uuid,
+					${input.learnTopicSlug || null}, ${input.pocketbaseVersionId || null},
+					true, ${input.createdBy || null},
 					NOW(), NOW()
 				) RETURNING *
 			`);
@@ -221,9 +231,9 @@ export async function updateNVCKnowledgeEntry(
 	try {
 		console.log(`📝 Updating NVC knowledge entry: ${id}`);
 
-		// If content or title changed, regenerate embedding
+		// If content or title changed, or generateEmbedding requested, regenerate embedding
 		let embedding: number[] | null = null;
-		if (updates.content || updates.title) {
+		if (updates.generateEmbedding || updates.content || updates.title) {
 			const existing = await getNVCKnowledgeEntry(id);
 			if (!existing) {
 				throw new Error('Entry not found');
@@ -248,6 +258,10 @@ export async function updateNVCKnowledgeEntry(
 		if (updates.tags !== undefined) updateData.tags = updates.tags;
 		if (updates.priority !== undefined) updateData.priority = updates.priority;
 		if (updates.isActive !== undefined) updateData.isActive = updates.isActive;
+		if (updates.learnTopicId !== undefined) updateData.learnTopicId = updates.learnTopicId;
+		if (updates.learnTopicVersionId !== undefined) updateData.learnTopicVersionId = updates.learnTopicVersionId;
+		if (updates.learnTopicSlug !== undefined) updateData.learnTopicSlug = updates.learnTopicSlug;
+		if (updates.pocketbaseVersionId !== undefined) updateData.pocketbaseVersionId = updates.pocketbaseVersionId;
 		if (embedding) {
 			// Use raw SQL for vector update
 			await db.execute(sql`
@@ -334,6 +348,14 @@ export async function getNVCKnowledgeEntry(id: string): Promise<NVCKnowledgeEntr
 }
 
 /**
+ * Build learn path for a topic slug. Uses LEARN_PATH_PREFIX env (e.g. "/learn" or "/(protected)/learn" for Expo Router).
+ */
+export function getLearnPath(slug: string): string {
+	const prefix = (process.env.LEARN_PATH_PREFIX || '/learn').replace(/\/$/, '');
+	return `${prefix}/${slug}`;
+}
+
+/**
  * Semantic search for NVC knowledge
  */
 export async function searchNVCKnowledge(
@@ -350,31 +372,33 @@ export async function searchNVCKnowledge(
 		// Generate embedding for the search query
 		const searchEmbedding = await generateNVCEmbedding(query, language || 'de');
 
-		// Build WHERE conditions as SQL fragments
-		const conditions: any[] = [sql`is_active = true`];
+		// Build WHERE conditions as SQL fragments (qualify with n. to avoid ambiguity with learn_topics)
+		const conditions: any[] = [sql`n.is_active = true`];
 		
 		if (language) {
-			conditions.push(sql`language = ${language}`);
+			conditions.push(sql`n.language = ${language}`);
 		}
 		if (options.category) {
-			conditions.push(sql`category = ${options.category}`);
+			conditions.push(sql`n.category = ${options.category}`);
 		}
 		if (options.tags && options.tags.length > 0) {
-			conditions.push(sql`tags && ${JSON.stringify(options.tags)}::text[]`);
+			conditions.push(sql`n.tags && ${JSON.stringify(options.tags)}::text[]`);
 		}
 
 		// Search using vector similarity
 		const whereClause = conditions.length > 0 
-			? sql`${sql.join(conditions, sql` AND `)} AND embedding IS NOT NULL`
-			: sql`embedding IS NOT NULL`;
+			? sql`${sql.join(conditions, sql` AND `)} AND n.embedding IS NOT NULL`
+			: sql`n.embedding IS NOT NULL`;
 
 		const results = await db.execute(sql`
-			SELECT *,
-				   1 - (embedding <-> ${JSON.stringify(searchEmbedding)}::vector) as similarity
-			FROM nvc_knowledge
+			SELECT n.*,
+				   COALESCE(lt.slug, n.learn_topic_slug) as learn_topic_slug,
+				   1 - (n.embedding <-> ${JSON.stringify(searchEmbedding)}::vector) as similarity
+			FROM nvc_knowledge n
+			LEFT JOIN learn_topics lt ON n.learn_topic_id = lt.id
 			WHERE ${whereClause}
-			  AND (1 - (embedding <-> ${JSON.stringify(searchEmbedding)}::vector)) >= ${minSimilarity}
-			ORDER BY embedding <-> ${JSON.stringify(searchEmbedding)}::vector
+			  AND (1 - (n.embedding <-> ${JSON.stringify(searchEmbedding)}::vector)) >= ${minSimilarity}
+			ORDER BY n.embedding <-> ${JSON.stringify(searchEmbedding)}::vector
 			LIMIT ${limit}
 		`);
 
@@ -382,24 +406,30 @@ export async function searchNVCKnowledge(
 		
 		console.log(`📝 Found ${resultRows.length} similar entries`);
 
-		return resultRows.map((row: any) => ({
-			id: row.id,
-			knowledgeId: row.knowledge_id,
-			language: row.language,
-			title: row.title,
-			content: row.content,
-			embedding: row.embedding,
-			category: row.category,
-			subcategory: row.subcategory,
-			source: row.source,
-			tags: row.tags,
-			priority: row.priority,
-			isActive: row.is_active,
-			createdBy: row.created_by,
-			created: row.created,
-			updated: row.updated,
-			similarity: row.similarity || 0
-		}));
+		return resultRows.map((row: any) => {
+			const learnTopicSlug = row.learn_topic_slug || null;
+			return {
+				id: row.id,
+				knowledgeId: row.knowledge_id,
+				language: row.language,
+				title: row.title,
+				content: row.content,
+				embedding: row.embedding,
+				category: row.category,
+				subcategory: row.subcategory,
+				source: row.source,
+				tags: row.tags,
+				priority: row.priority,
+				isActive: row.is_active,
+				learnTopicSlug,
+				learnPath: learnTopicSlug ? getLearnPath(learnTopicSlug) : null,
+				pocketbaseVersionId: row.pocketbase_version_id || null,
+				createdBy: row.created_by,
+				created: row.created,
+				updated: row.updated,
+				similarity: row.similarity || 0
+			};
+		});
 	} catch (error) {
 		console.error('Error searching NVC knowledge:', error);
 		throw error;
@@ -611,6 +641,323 @@ export async function getNVCTags(): Promise<string[]> {
 		console.error('Error getting NVC tags:', error);
 		return [];
 	}
+}
+
+/**
+ * Extract plain text from learn topic version content (JSONB blocks)
+ * Handles TipTap/ProseMirror, Slate, and generic block structures
+ */
+function extractTextFromLearnContent(content: any): string {
+	if (!content) return '';
+	if (typeof content === 'string') return content;
+	if (Array.isArray(content)) {
+		return content.map((block: any) => {
+			if (typeof block === 'string') return block;
+			if (block?.text) return block.text;
+			if (block?.content) return extractTextFromLearnContent(block.content);
+			if (block?.children) return extractTextFromLearnContent(block.children);
+			// TipTap/ProseMirror: { type: 'paragraph', content: [{ type: 'text', text: '...' }] }
+			if (Array.isArray(block)) return extractTextFromLearnContent(block);
+			// Recurse into object to find text
+			if (typeof block === 'object') {
+				const parts: string[] = [];
+				for (const v of Object.values(block)) {
+					if (typeof v === 'string' && v.length > 1) parts.push(v);
+					else if (v && typeof v === 'object') parts.push(extractTextFromLearnContent(v));
+				}
+				return parts.filter(Boolean).join(' ');
+			}
+			return '';
+		}).filter(Boolean).join('\n');
+	}
+	if (content?.text) return content.text;
+	if (content?.content) return extractTextFromLearnContent(content.content);
+	if (content?.children) return extractTextFromLearnContent(content.children);
+	// TipTap doc: { type: 'doc', content: [...] }
+	if (content?.type === 'doc' && content?.content) return extractTextFromLearnContent(content.content);
+	// Generic object with nested content
+	if (typeof content === 'object') {
+		const parts: string[] = [];
+		for (const v of Object.values(content)) {
+			if (typeof v === 'string' && v.length > 1) parts.push(v);
+			else if (v && typeof v === 'object') parts.push(extractTextFromLearnContent(v));
+		}
+		return parts.filter(Boolean).join(' ');
+	}
+	return '';
+}
+
+function getField(record: Record<string, any>, ...keys: string[]): any {
+	for (const key of keys) {
+		if (record[key] !== undefined && record[key] !== null && record[key] !== '') {
+			return record[key];
+		}
+	}
+	return undefined;
+}
+
+function toBoolean(value: any, fallback: boolean): boolean {
+	if (value === null || value === undefined) return fallback;
+	if (typeof value === 'boolean') return value;
+	if (typeof value === 'string') {
+		const n = value.trim().toLowerCase();
+		if (['true', '1', 'yes', 'y'].includes(n)) return true;
+		if (['false', '0', 'no', 'n'].includes(n)) return false;
+	}
+	return fallback;
+}
+
+function slugify(value: string): string {
+	return value.toLowerCase().trim().replace(/[^\w\s-]/g, '').replace(/\s+/g, '-').replace(/-+/g, '-');
+}
+
+interface GeminiLearnExtraction {
+	title: string;
+	tags: string[];
+	summary: string;
+	usedConcepts: string[];
+}
+
+/**
+ * Call Gemini to extract title, tags, summary, used concepts from learn content
+ */
+async function extractLearnMetadataWithGemini(rawContent: string, language: 'de' | 'en'): Promise<GeminiLearnExtraction> {
+	const ai = getGenAIClient();
+	const isGerman = language === 'de';
+
+	const systemInstruction = isGerman
+		? `Du bist ein Experte für Gewaltfreie Kommunikation (GFK). Analysiere den gegebenen Lerninhalt und extrahiere strukturierte Metadaten.
+
+Antworte AUSSCHLIESSLICH mit einem JSON-Objekt im Format:
+{
+  "title": "Kurzer, prägnanter Titel (max. 80 Zeichen)",
+  "tags": ["tag1", "tag2", "tag3"],
+  "summary": "Zusammenfassung des Inhalts in 2-4 Sätzen für die Vektorsuche",
+  "usedConcepts": ["GFK-Konzept1", "GFK-Konzept2"]
+}
+
+- title: Fasse den Inhalt prägnant zusammen
+- tags: 3-6 relevante Schlagwörter (GFK-Begriffe, Themen)
+- summary: Inhaltliche Zusammenfassung für semantische Suche
+- usedConcepts: GFK-Konzepte die im Inhalt vorkommen (z.B. Bedürfnisse, Gefühle, Beobachtung, Bitte, Empathie, Selbstempathie)`
+		: `You are an expert in Nonviolent Communication (NVC). Analyze the given learning content and extract structured metadata.
+
+Respond ONLY with a JSON object in the format:
+{
+  "title": "Short, concise title (max 80 chars)",
+  "tags": ["tag1", "tag2", "tag3"],
+  "summary": "Summary of the content in 2-4 sentences for vector search",
+  "usedConcepts": ["NVC-concept1", "NVC-concept2"]
+}
+
+- title: Summarize the content concisely
+- tags: 3-6 relevant keywords (NVC terms, topics)
+- summary: Content summary for semantic search
+- usedConcepts: NVC concepts used in the content (e.g. needs, feelings, observation, request, empathy, self-empathy)`;
+
+	const responseSchema = {
+		type: Type.OBJECT,
+		properties: {
+			title: { type: Type.STRING, description: 'Short title (max 80 chars)' },
+			tags: { type: Type.ARRAY, items: { type: Type.STRING }, description: '3-6 keywords' },
+			summary: { type: Type.STRING, description: 'Content summary for vector search' },
+			usedConcepts: { type: Type.ARRAY, items: { type: Type.STRING }, description: 'NVC concepts used' }
+		},
+		required: ['title', 'tags', 'summary', 'usedConcepts']
+	};
+
+	const chat = ai.chats.create({
+		model: 'gemini-2.5-flash',
+		config: {
+			temperature: 0.3,
+			maxOutputTokens: 1024,
+			systemInstruction,
+			responseMimeType: 'application/json',
+			responseSchema
+		}
+	});
+
+	const result = await chat.sendMessage({
+		message: `Lerninhalt:\n\n${rawContent.substring(0, 15000)}`
+	});
+
+	const text = result.text || '{}';
+	const cleaned = text.replace(/```json\n?/g, '').replace(/```\n?/g, '').trim();
+
+	let parsed: GeminiLearnExtraction;
+	try {
+		parsed = JSON.parse(cleaned) as GeminiLearnExtraction;
+	} catch {
+		// Fallback: try to extract JSON object from response (first { to last })
+		const start = cleaned.indexOf('{');
+		const end = cleaned.lastIndexOf('}');
+		if (start !== -1 && end > start) {
+			try {
+				parsed = JSON.parse(cleaned.slice(start, end + 1)) as GeminiLearnExtraction;
+			} catch {
+				parsed = {
+					title: cleaned.split('\n')[0]?.trim().slice(0, 80) || 'Untitled',
+					tags: [],
+					summary: rawContent.substring(0, 500),
+					usedConcepts: []
+				};
+			}
+		} else {
+			parsed = {
+				title: '',
+				tags: [],
+				summary: rawContent.substring(0, 500),
+				usedConcepts: []
+			};
+		}
+	}
+
+	// Reject titles that are JSON fragments or invalid (e.g. "{", "[", empty)
+	function isValidTitle(s: string): boolean {
+		const t = s?.trim() || '';
+		if (!t || t.length < 2) return false;
+		const first = t[0];
+		if (first === '{' || first === '[' || first === '"') return false;
+		return true;
+	}
+
+	const title = isValidTitle(parsed.title)
+		? (parsed.title ?? '').trim().slice(0, 80)
+		: (rawContent.split('\n').find((l) => l.trim().length > 2)?.trim().slice(0, 80) || 'Untitled');
+
+	return {
+		title,
+		tags: Array.isArray(parsed.tags) ? parsed.tags : [],
+		summary: parsed.summary || rawContent.substring(0, 500),
+		usedConcepts: Array.isArray(parsed.usedConcepts) ? parsed.usedConcepts : []
+	};
+}
+
+/**
+ * Sync learn section content from PocketBase to nvc_knowledge vector DB.
+ * Fetches topics + topicVersions from PocketBase, sends content to Gemini for metadata extraction,
+ * then saves to nvc_knowledge with title, tags, summary, used concepts.
+ */
+export async function syncLearnContentToNVCKnowledge(): Promise<{
+	created: number;
+	updated: number;
+	skipped: number;
+	errors: number;
+	debug?: { totalFetched: number; publishedCount: number; topicCount: number };
+}> {
+	const stats = { created: 0, updated: 0, skipped: 0, errors: 0 };
+
+	const pbUrl = process.env.POCKETBASE_URL;
+	const pbEmail = process.env.POCKETBASE_ADMIN_EMAIL;
+	const pbPassword = process.env.POCKETBASE_ADMIN_PASSWORD;
+
+	if (!pbUrl || !pbEmail || !pbPassword) {
+		throw new Error('POCKETBASE_URL, POCKETBASE_ADMIN_EMAIL, POCKETBASE_ADMIN_PASSWORD are required');
+	}
+
+	const PocketBase = (await import('pocketbase')).default;
+	const pb = new PocketBase(pbUrl.startsWith('http') ? pbUrl : `https://${pbUrl}`);
+
+	try {
+		await pb.admins.authWithPassword(pbEmail, pbPassword);
+	} catch {
+		try {
+			await pb.collection('users').authWithPassword(pbEmail, pbPassword);
+		} catch (e) {
+			throw new Error(`PocketBase auth failed: ${(e as Error).message}`);
+		}
+	}
+
+	// Fetch topics and topicVersions separately (same as migrate script - no expand, no filter)
+	const [topics, topicVersions] = await Promise.all([
+		pb.collection('topics').getFullList<Record<string, any>>({ batch: 200, sort: 'created' }),
+		pb.collection('topicVersions').getFullList<Record<string, any>>({ batch: 200, sort: 'created' })
+	]);
+
+	console.log(`📚 Fetched ${topics.length} topics, ${topicVersions.length} topicVersions`);
+
+	const topicMap = new Map<string, Record<string, any>>();
+	for (const t of topics) {
+		topicMap.set(t.id, t);
+	}
+
+	for (const version of topicVersions) {
+		// topicVersions.topic = relation ID; topics.slug = URL slug
+		const topicId = getField(version, 'topic');
+		const topic = topicId ? topicMap.get(String(topicId)) : null;
+		const topicSlug = topic
+			? slugify(String(getField(topic, 'slug') || 'unknown')) || 'unknown'
+			: 'unknown';
+
+		const rawContent = extractTextFromLearnContent(
+			getField(version, 'content', 'body', 'text', 'html')
+		);
+		const desc = getField(version, 'descriptionDE', 'description_de') || getField(version, 'descriptionEN', 'description_en') || '';
+		const summary = getField(version, 'summary');
+		const titleFallback = getField(version, 'titleDE', 'title_de') || getField(version, 'titleEN', 'title_en') || '';
+		const fullContent = [titleFallback, desc, summary, rawContent].filter(Boolean).join('\n\n');
+
+		if (!fullContent.trim()) {
+			const sample = JSON.stringify({
+				keys: Object.keys(version),
+				titleDE: version.titleDE ?? version.title_de,
+				contentType: version.content ? typeof version.content : 'missing',
+				contentPreview: typeof version.content === 'string'
+					? version.content.slice(0, 100)
+					: version.content ? JSON.stringify(version.content).slice(0, 150) : null
+			});
+			console.warn(`⚠️ Skipping version ${version.id}: no extractable content. Sample: ${sample}`);
+			stats.skipped++;
+			continue;
+		}
+
+		const lang = ((getField(version, 'language') || 'de') as string).toLowerCase().startsWith('de') ? 'de' : 'en';
+
+		try {
+			const extracted = await extractLearnMetadataWithGemini(fullContent, lang as 'de' | 'en');
+			const allTags = [...new Set([...extracted.tags, ...extracted.usedConcepts, 'learn', topicSlug])].filter(Boolean);
+
+			const input: CreateNVCKnowledgeInput = {
+				language: lang as 'de' | 'en',
+				title: extracted.title,
+				content: extracted.summary,
+				category: 'learn',
+				source: 'learn',
+				tags: allTags,
+				learnTopicSlug: topicSlug,
+				pocketbaseVersionId: version.id,
+				priority: 4
+			};
+
+			const existing = await db.execute(sql`
+				SELECT id FROM nvc_knowledge
+				WHERE pocketbase_version_id = ${version.id}
+				LIMIT 1
+			`);
+			const rows = Array.isArray(existing) ? existing : (existing as any).rows || [];
+			const existingId = rows[0]?.id;
+
+			if (existingId) {
+				await updateNVCKnowledgeEntry(existingId, { ...input, generateEmbedding: true });
+				stats.updated++;
+			} else {
+				await createNVCKnowledgeEntry(input);
+				stats.created++;
+			}
+		} catch (err) {
+			console.error(`❌ Error processing topicVersion ${version.id}:`, err);
+			stats.errors++;
+		}
+	}
+
+	console.log(`📚 Sync learn→nvc_knowledge: ${stats.created} created, ${stats.updated} updated, ${stats.skipped} skipped, ${stats.errors} errors`);
+
+	const debug = {
+		totalFetched: topicVersions.length,
+		publishedCount: topicVersions.length,
+		topicCount: topics.length
+	};
+	return { ...stats, debug };
 }
 
 /**
