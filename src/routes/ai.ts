@@ -343,4 +343,178 @@ Erstelle eine einfühlsame Zusammenfassung dieser Selbstreflexion, die der Perso
 	}
 });
 
+// POST /api/ai/learn/needsDetective - Needs Detective AI reflection or summary
+ai.post('/learn/needsDetective', async (c: Context) => {
+	const user = c.get('user');
+	if (!user) {
+		return c.json({ error: 'Unauthorized' }, 401);
+	}
+
+	try {
+		const body = await c.req.json();
+		const { step, situation, thoughts, needs } = body;
+
+		console.log('NeedsDetective API request:', {
+			step,
+			situation: !!situation,
+			thoughts: !!thoughts,
+			needs: !!needs,
+		});
+
+		if (!step) {
+			return c.json({ error: 'Missing step parameter' }, 400);
+		}
+
+		let systemPrompt = '';
+		let prompt = '';
+
+		if (step === 'reflection') {
+			if (!situation) {
+				return c.json({ error: 'Missing situation for reflection step' }, 400);
+			}
+
+			const thoughtsText = thoughts ?? situation;
+
+			systemPrompt = `Du bist ein einfühlsamer Begleiter, der Menschen hilft, ihre Situationen und Strategien ohne Bewertung zu reflektieren.
+Deine Aufgabe ist es, die geschilderte Situation und Strategie neutral und verständnisvoll wiederzugeben, ohne Urteile zu fällen oder Ratschläge zu geben.
+Konzentriere dich darauf, die Situation objektiv zu spiegeln und zu validieren, was die Person erlebt hat.
+Verwende eine warme, verständnisvolle Sprache und bleibe bei den Fakten der geschilderten Situation.`;
+
+			prompt = `Situation: ${situation}
+
+Gedanken/Strategie: ${thoughtsText}
+
+Bitte spiegele diese Situation neutral und verständnisvoll wider, ohne Bewertungen oder Ratschläge.`;
+
+		} else if (step === 'summary') {
+			if (!situation || !thoughts || !needs) {
+				return c.json({ error: 'Missing required fields for summary step (situation, thoughts, needs)' }, 400);
+			}
+
+			systemPrompt = `Du bist ein Experte für gewaltfreie Kommunikation. Du existierst in dem Lernmodul "Bedürfnis-Detektiv".
+Du erstellst eine Zusammenfassung für den letzten Schritt einer Lern-Session. Es geht darum, dem Nutzer zu erklären, dass es sinnvoll ist, sich mit seinen Bedürfnissen auseinanderzusetzen.
+Der Nutzer hat eine schwierige Situation beschrieben, seine Gedanken oder Strategien geschildert und seine Bedürfnisse identifiziert.
+Deine Aufgabe ist es, eine einfühlsame Zusammenfassung zu erstellen, die dem Nutzer hilft, den Sinn und Mehrwert der Auseinandersetzung mit seinen Bedürfnissen zu verstehen.
+Du redest direkt mit dem Nutzer. Antworte nur mit unformattiertem Text. Ohne Begrüßung oder Abschluss.
+Bitte gib dem Nutzer keine Aufgaben – mit deiner Antwort ist das Lernmodul abgeschlossen.`;
+
+			prompt = `Situation: ${situation}
+
+Gedanken/Strategie: ${thoughts}
+
+Bedürfnisse: ${needs}
+
+Erstelle eine einfühlsame Zusammenfassung dieser Selbstreflexion, die der Person hilft, ihre Erfahrung und die Verbindung zu ihren Bedürfnissen mit Mitgefühl zu verstehen.`;
+
+		} else {
+			return c.json({ error: 'Invalid step parameter' }, 400);
+		}
+
+		const aiClient = getAiClient();
+		const chat = aiClient.chats.create({
+			model: 'gemini-2.5-flash',
+			config: {
+				systemInstruction: systemPrompt,
+				temperature: 0.7,
+				maxOutputTokens: 8192,
+			},
+		});
+
+		console.log('NeedsDetective: Sending message to Gemini:', prompt.substring(0, 100) + '...');
+		const result = await chat.sendMessage({ message: prompt });
+
+		let response = result.text;
+
+		if (!response && result.candidates && result.candidates.length > 0) {
+			const candidate = result.candidates[0];
+			if (candidate.content && candidate.content.parts && candidate.content.parts.length > 0) {
+				response = candidate.content.parts[0].text;
+			}
+		}
+
+		if (!response && (result as any).response?.candidates?.[0]?.content?.parts?.[0]?.text) {
+			response = (result as any).response.candidates[0].content.parts[0].text;
+		}
+
+		if (!response || response.trim() === '') {
+			if (result.candidates?.[0]?.finishReason === 'MAX_TOKENS') {
+				throw new Error('AI response was cut off due to length limit. Please try again.');
+			}
+			throw new Error('No response from AI');
+		}
+
+		return c.json({ response });
+	} catch (error) {
+		console.error('Error in NeedsDetective endpoint:', error);
+		return c.json({ error: 'Failed to process request' }, 500);
+	}
+});
+
+// POST /api/ai/learn/needsRubiksCube - Transform sentence into underlying needs
+ai.post('/learn/needsRubiksCube', async (c: Context) => {
+	const user = c.get('user');
+	if (!user) {
+		return c.json({ error: 'Unauthorized' }, 401);
+	}
+
+	try {
+		const body = await c.req.json();
+		const { sentence, instruction } = body;
+
+		if (!sentence || typeof sentence !== 'string') {
+			return c.json({ error: 'Missing sentence parameter' }, 400);
+		}
+
+		const inst = instruction || 'Transformiere diesen Satz in die zugrunde liegenden Bedürfnisse.';
+		const systemPrompt = `Du bist ein Experte für gewaltfreie Kommunikation. Deine Aufgabe ist es, Sätze in die zugrunde liegenden Bedürfnisse zu übersetzen.
+Der Nutzer gibt einen schwierigen Satz ein (z.B. etwas, das er gehört hat). Antworte NUR mit einer JSON-Liste von Bedürfnissen als Array.
+Beispiel: ["Verständnis", "Respekt", "Wertschätzung"]
+Antworte ausschließlich mit dem JSON-Array, keine zusätzlichen Erklärungen.`;
+
+		const prompt = `${inst}\n\nSatz: ${sentence.trim()}`;
+
+		const aiClient = getAiClient();
+		const chat = aiClient.chats.create({
+			model: 'gemini-2.5-flash',
+			config: {
+				systemInstruction: systemPrompt,
+				temperature: 0.5,
+				maxOutputTokens: 1024,
+			},
+		});
+
+		const result = await chat.sendMessage({ message: prompt });
+		let response = result.text;
+
+		if (!response && result.candidates && result.candidates.length > 0) {
+			const candidate = result.candidates[0];
+			if (candidate.content && candidate.content.parts && candidate.content.parts.length > 0) {
+				response = candidate.content.parts[0].text;
+			}
+		}
+
+		if (!response || response.trim() === '') {
+			throw new Error('No response from AI');
+		}
+
+		// Parse JSON array from response (may be wrapped in markdown code blocks)
+		let needs: string[] = [];
+		const trimmed = response.trim();
+		const jsonMatch = trimmed.match(/\[[\s\S]*\]/);
+		if (jsonMatch) {
+			try {
+				needs = JSON.parse(jsonMatch[0]);
+				if (!Array.isArray(needs)) needs = [];
+			} catch {
+				needs = trimmed.split(/[,\n]/).map((s) => s.replace(/^["'\s\-•]+|["'\s\-•]+$/g, '').trim()).filter(Boolean);
+			}
+		}
+
+		return c.json({ needs });
+	} catch (error) {
+		console.error('Error in needsRubiksCube endpoint:', error);
+		return c.json({ error: 'Failed to transform sentence into needs' }, 500);
+	}
+});
+
 export default ai;
