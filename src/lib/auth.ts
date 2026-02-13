@@ -9,6 +9,11 @@ import * as schema from '../../drizzle/schema.js';
 const db = drizzle(process.env.DATABASE_URL!);
 
 /**
+ * In-memory store for verification links (used for testing)
+ */
+export const lastVerificationLinks = new Map<string, string>();
+
+/**
  * Send verification email to user using Brevo
  * 
  * SECURITY: This function uses BREVO_API_KEY from server-side environment variables only.
@@ -53,6 +58,9 @@ export async function sendVerificationEmail({ user, url, token }: { user: { emai
     // Fallback to original URL if transformation fails
     verificationUrl = url;
   }
+
+  // Store the link for testing purposes
+  lastVerificationLinks.set(user.email, verificationUrl);
   
   const brevoApiKey = process.env.BREVO_API_KEY;
   
@@ -205,6 +213,7 @@ export const auth = betterAuth({
   },
   emailVerification: {
     sendVerificationEmail,
+    autoSignInAfterVerification: true,
   },
   trustedOrigins: async (request) => {
     const origin = request.headers.get('origin');

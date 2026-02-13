@@ -8,12 +8,12 @@ import { dirname, join } from 'path';
 import { fileURLToPath } from 'url';
 import { auth } from './lib/auth.js';
 import ai from './routes/ai.js';
-import analytics from './routes/analytics.js';
 import analyses from './routes/analyses.js';
+import analytics from './routes/analytics.js';
 import bullshift from './routes/bullshift.js';
 import data from './routes/data.js';
-import garden from './routes/garden.js';
 import feedback from './routes/feedback.js';
+import garden from './routes/garden.js';
 import learn from './routes/learn.js';
 import memories from './routes/memories.js';
 import messages from './routes/messages.js';
@@ -23,6 +23,7 @@ import safety from './routes/safety.js';
 import stats from './routes/stats.js';
 import streaks from './routes/streaks.js';
 import testRuns from './routes/test-runs.js';
+import test from './routes/test.js';
 import user from './routes/user.js';
 import type { Env } from './types/hono.js';
 
@@ -155,18 +156,40 @@ function escapeHtml(s: string): string {
 
 app.on(["POST", "GET", "OPTIONS"], "/api/auth/*", async (c) => {
 	try {
-		let req = c.req.raw;
+		const req = c.req.raw;
+		const url = new URL(req.url);
+		console.log(`[Backend Auth Debug] Incoming ${req.method} ${url.pathname}${url.search}`);
+		
 		// better-call requires a JSON body for POST; sign-out sends empty body by default
+		let finalReq = req;
 		if (req.method === 'POST' && req.url.endsWith('/sign-out')) {
 			const text = await req.text();
-			req = new Request(req.url, {
+			finalReq = new Request(req.url, {
 				method: 'POST',
 				headers: req.headers,
 				body: text?.trim() ? text : '{}'
 			});
 		}
-		const handlerResult = auth.handler(req);
-		const response = handlerResult instanceof Promise ? await handlerResult : handlerResult;
+		
+		const response = await auth.handler(finalReq);
+
+		if (url.pathname.includes('/verify-email')) {
+			console.log('[Backend Auth Debug] verify-email response status:', response?.status);
+			if (response) {
+				const headers = Object.fromEntries(response.headers.entries());
+				console.log('[Backend Auth Debug] verify-email response headers:', {
+					'set-cookie': !!headers['set-cookie'],
+					'content-type': headers['content-type'],
+					'location': headers['location']
+				});
+				
+				if (headers['content-type']?.includes('application/json')) {
+					const clonedRes = response.clone();
+					const body = await clonedRes.json();
+					console.log('[Backend Auth Debug] verify-email response body:', JSON.stringify(body, null, 2));
+				}
+			}
+		}
 		
 		// Transform error responses to match frontend expectations
 		if (response && response.status >= 400) {
@@ -290,6 +313,7 @@ app.route('/api/nvc-knowledge', nvcKnowledge);
 app.route('/api/feedback', feedback);
 app.route('/api/safety', safety);
 app.route('/api/user', user);
+app.route('/api/test', test);
 
 // Serve static files from dashboard directory (after API routes)
 // Use process.cwd() to get the project root, which works regardless of where the code is compiled
