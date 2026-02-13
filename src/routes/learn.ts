@@ -209,6 +209,28 @@ learn.post('/sessions', async (c) => {
   });
 });
 
+// Reset learn session(s) for the current user (testing)
+learn.delete('/sessions', async (c: Context<Env>) => {
+  const user = c.get('user');
+  if (!user) {
+    return c.json({ error: 'Unauthorized' }, 401);
+  }
+
+  const topicId = c.req.query('topicId');
+
+  const conditions = [eq(learnSessions.userId, user.id)];
+  if (topicId) {
+    conditions.push(eq(learnSessions.topicId, topicId));
+  }
+
+  const deleted = await db
+    .delete(learnSessions)
+    .where(and(...conditions))
+    .returning({ id: learnSessions.id });
+
+  return c.json({ success: true, deletedCount: deleted.length });
+});
+
 // Update learning session
 learn.patch('/sessions/:id', async (c: Context<Env>) => {
   const user = c.get('user');
