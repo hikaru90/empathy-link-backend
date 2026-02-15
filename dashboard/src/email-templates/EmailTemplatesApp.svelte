@@ -5,7 +5,7 @@
 	import Login from '../lib/components/Login.svelte';
 	import Header from '../lib/components/Header.svelte';
 	// @ts-ignore
-	import styleGuideContent from './styleGuide.md?raw';
+	import styleGuideContent from './styleguide.md?raw';
 
 	let session: { user: { name: string; email: string } } | null = null;
 	let authChecked = false;
@@ -361,14 +361,14 @@
 
 				<div class="grid md:grid-cols-2 gap-6">
 					<div class="space-y-4">
-						<label class="block text-sm text-gray-600">Template Name (Unique)</label>
-						<input bind:value={currentTemplate.name} class="w-full border px-3 py-2 rounded-lg" placeholder="e.g. welcome_email" />
+						<label for="templateName" class="block text-sm text-gray-600">Template Name (Unique)</label>
+						<input id="templateName" bind:value={currentTemplate.name} class="w-full border px-3 py-2 rounded-lg" placeholder="e.g. welcome_email" />
 
-						<label class="block text-sm text-gray-600">Subject Line</label>
-						<input bind:value={currentTemplate.subject} class="w-full border px-3 py-2 rounded-lg" placeholder="Email Subject" />
+						<label for="subjectLine" class="block text-sm text-gray-600">Subject Line</label>
+						<input id="subjectLine" bind:value={currentTemplate.subject} class="w-full border px-3 py-2 rounded-lg" placeholder="Email Subject" />
 
-						<label class="block text-sm text-gray-600">Variables (JSON)</label>
-						<input bind:value={currentTemplate.variables} class="w-full border px-3 py-2 rounded-lg font-mono text-xs" placeholder='["userName", "verificationUrl"]' />
+						<label for="variables" class="block text-sm text-gray-600">Variables (JSON)</label>
+						<input id="variables" bind:value={currentTemplate.variables} class="w-full border px-3 py-2 rounded-lg font-mono text-xs" placeholder='["userName", "verificationUrl"]' />
 						
 						<div class="bg-blue-50 p-4 rounded-lg mt-4">
 							<h3 class="font-semibold text-blue-800 mb-2">AI Assistant</h3>
@@ -397,8 +397,9 @@
 					</div>
 
 					<div class="space-y-2 flex flex-col h-full">
-						<label class="block text-sm text-gray-600">HTML Content</label>
+						<label for="htmlContent" class="block text-sm text-gray-600">HTML Content</label>
 						<textarea
+							id="htmlContent"
 							bind:value={currentTemplate.content}
 							class="w-full border px-3 py-2 rounded-lg font-mono text-xs flex-1 min-h-[400px]"
 							placeholder="<html>...</html>"
