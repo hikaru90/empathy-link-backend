@@ -83,7 +83,7 @@ export async function sendVerificationEmail({ user, url, token }: { user: { emai
     
     // Set sender
     sendSmtpEmail.sender = {
-      name: 'Empathy Link',
+      name: 'Empathy-Link',
       email: process.env.BREVO_FROM_EMAIL || 'noreply@empathy-link.de',
     };
 
@@ -94,7 +94,7 @@ export async function sendVerificationEmail({ user, url, token }: { user: { emai
     }];
 
     // Set email content
-    sendSmtpEmail.subject = 'Bestätige deine E-Mail-Adresse - Empathy Link';
+    sendSmtpEmail.subject = 'Bestätige deine E-Mail-Adresse - Empathy-Link';
     
     const userName = user.name || 'Nutzer';
     const htmlContent = `
@@ -106,12 +106,12 @@ export async function sendVerificationEmail({ user, url, token }: { user: { emai
         </head>
         <body style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif; line-height: 1.6; color: #333; max-width: 600px; margin: 0 auto; padding: 20px;">
           <div style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); padding: 30px; border-radius: 10px 10px 0 0; text-align: center;">
-            <h1 style="color: white; margin: 0; font-size: 28px;">Empathy Link</h1>
+            <h1 style="color: white; margin: 0; font-size: 28px;">Empathy-Link</h1>
           </div>
           <div style="background: #ffffff; padding: 40px; border-radius: 0 0 10px 10px; box-shadow: 0 2px 10px rgba(0,0,0,0.1);">
             <h2 style="color: #333; margin-top: 0;">Hallo ${userName}!</h2>
             <p style="color: #666; font-size: 16px;">
-              Vielen Dank für deine Registrierung bei Empathy Link. Um dein Konto zu aktivieren, 
+              Vielen Dank für deine Registrierung bei Empathy-Link. Um dein Konto zu aktivieren, 
               bitte bestätige deine E-Mail-Adresse, indem du auf den folgenden Button klickst:
             </p>
             <div style="text-align: center; margin: 30px 0;">
@@ -134,7 +134,7 @@ export async function sendVerificationEmail({ user, url, token }: { user: { emai
             </p>
           </div>
           <div style="text-align: center; margin-top: 20px; color: #999; font-size: 12px;">
-            <p>© ${new Date().getFullYear()} Empathy Link. Alle Rechte vorbehalten.</p>
+            <p>© ${new Date().getFullYear()} Empathy-Link. Alle Rechte vorbehalten.</p>
           </div>
         </body>
       </html>
@@ -143,7 +143,7 @@ export async function sendVerificationEmail({ user, url, token }: { user: { emai
     const textContent = `
 Hallo ${userName}!
 
-Vielen Dank für deine Registrierung bei Empathy Link. Um dein Konto zu aktivieren, 
+Vielen Dank für deine Registrierung bei Empathy-Link. Um dein Konto zu aktivieren, 
 bitte bestätige deine E-Mail-Adresse, indem du auf den folgenden Link klickst:
 
 ${verificationUrl}
@@ -151,7 +151,7 @@ ${verificationUrl}
 Dieser Link ist 24 Stunden gültig. Falls du diese E-Mail nicht angefordert hast, 
 kannst du sie einfach ignorieren.
 
-© ${new Date().getFullYear()} Empathy Link. Alle Rechte vorbehalten.
+© ${new Date().getFullYear()} Empathy-Link. Alle Rechte vorbehalten.
     `.trim();
 
     sendSmtpEmail.htmlContent = htmlContent;

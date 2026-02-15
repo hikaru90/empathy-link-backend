@@ -135,7 +135,7 @@ stats.get('/inspirational-quote', async (c: Context) => {
 			// Return a default quote if none is stored yet
 			return c.json({
 				quote: 'Jeder Schritt auf deinem Weg zählt. Du hast bereits Mut bewiesen, indem du dich entschieden hast, dir selbst Raum zu geben.',
-				author: 'Empathy Link',
+				author: 'Empathy-Link',
 				source: 'default'
 			});
 		}
