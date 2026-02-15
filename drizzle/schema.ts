@@ -655,3 +655,30 @@ export const crisisResources = pgTable("crisis_resources", {
 }, (table) => [
 	index("crisis_resources_language_idx").using("btree", table.language.asc().nullsLast().op("text_ops")),
 ]);
+
+export const emailTemplates = pgTable("email_templates", {
+	id: uuid().defaultRandom().primaryKey().notNull(),
+	name: text().notNull(),
+	currentVersionId: uuid("current_version_id").references(() => emailTemplateVersions.id, { onDelete: 'set null' }),
+	created: timestamp({ mode: 'string' }).defaultNow().notNull(),
+	updated: timestamp({ mode: 'string' }).defaultNow().notNull(),
+}, (table) => [
+	unique("email_templates_name_unique").on(table.name),
+]);
+
+export const emailTemplateVersions = pgTable("email_template_versions", {
+	id: uuid().defaultRandom().primaryKey().notNull(),
+	templateId: uuid("template_id").notNull(),
+	subject: text(),
+	content: text().notNull(),
+	variables: text(), // JSON array stored as text
+	versionNumber: integer("version_number").notNull(),
+	created: timestamp({ mode: 'string' }).defaultNow().notNull(),
+}, (table) => [
+	foreignKey({
+		columns: [table.templateId],
+		foreignColumns: [emailTemplates.id],
+		name: "email_template_versions_template_id_fk"
+	}).onDelete("cascade"),
+	index("email_template_versions_template_idx").using("btree", table.templateId.asc().nullsLast().op("uuid_ops")),
+]);

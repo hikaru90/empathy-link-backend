@@ -25,6 +25,7 @@ import streaks from './routes/streaks.js';
 import testRuns from './routes/test-runs.js';
 import test from './routes/test.js';
 import user from './routes/user.js';
+import emailTemplates from './routes/email-templates.js';
 import type { Env } from './types/hono.js';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -314,6 +315,13 @@ app.route('/api/feedback', feedback);
 app.route('/api/safety', safety);
 app.route('/api/user', user);
 app.route('/api/test', test);
+app.route('/api/email-templates', emailTemplates);
+
+// Serve public assets (images, files, etc.)
+app.use('/public/*', serveStatic({
+  root: './public',
+  rewriteRequestPath: (path) => path.replace(/^\/public/, '')
+}));
 
 // Serve static files from dashboard directory (after API routes)
 // Use process.cwd() to get the project root, which works regardless of where the code is compiled

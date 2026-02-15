@@ -11,7 +11,7 @@ export default defineConfig({
 			input: {
 				index: path.resolve(__dirname, 'index.html'),
 				analytics: path.resolve(__dirname, 'analytics.html'),
-				safety: path.resolve(__dirname, 'safety.html')
+				emailTemplates: path.resolve(__dirname, 'email-templates.html')
 			}
 		}
 	},

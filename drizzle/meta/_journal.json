@@ -120,6 +120,13 @@
       "when": 1770500000000,
       "tag": "0017_safety_appeal_human_review",
       "breakpoints": true
+    },
+    {
+      "idx": 17,
+      "version": "7",
+      "when": 1771158245318,
+      "tag": "0021_email_template_versioning",
+      "breakpoints": true
     }
   ]
 }

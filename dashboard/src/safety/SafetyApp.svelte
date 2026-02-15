@@ -3,6 +3,7 @@
 	import { safetyApi } from '../lib/api';
 	import { getSession, signOut } from '../lib/auth';
 	import Login from '../lib/components/Login.svelte';
+	import Header from '../lib/components/Header.svelte';
 
 	let session: { user: { name: string; email: string } } | null = null;
 	let authChecked = false;
@@ -65,30 +66,11 @@
 	<Login />
 {:else}
 <main class="min-h-screen bg-gray-50 text-gray-900">
-	<header class="bg-white border-b border-gray-200">
-		<div class="max-w-6xl mx-auto px-6 py-6 flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
-			<div>
-				<p class="text-xs uppercase tracking-wide text-gray-400">Operations</p>
-				<h1 class="text-2xl font-semibold">Safety</h1>
-				<p class="text-sm text-gray-500">Flagged users (metadata only – no chat content).</p>
-			</div>
-			<nav class="flex gap-4 text-sm items-center">
-				<a href="/" class="text-gray-600 hover:text-gray-900">Knowledge Base</a>
-				<a href="/analytics.html" class="text-gray-600 hover:text-gray-900">Analytics</a>
-				<a href="/safety.html" class="text-gray-900 font-semibold">Safety</a>
-				<button
-					type="button"
-					class="px-3 py-1.5 border border-gray-300 rounded-lg text-gray-700 hover:bg-gray-50"
-					on:click={async () => {
-						await signOut();
-						window.location.reload();
-					}}
-				>
-					Abmelden
-				</button>
-			</nav>
-		</div>
-	</header>
+	<Header 
+		title="Safety" 
+		description="Flagged users (metadata only – no chat content)." 
+		activePage="safety" 
+	/>
 
 	{#if error}
 		<div class="max-w-6xl mx-auto mt-4 px-6">

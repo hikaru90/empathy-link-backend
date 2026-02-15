@@ -159,6 +159,54 @@ export const analyticsApi = {
 	}
 };
 
+export interface EmailTemplate {
+	id: string;
+	name: string;
+	subject: string | null;
+	content: string;
+	variables: string | null;
+	updated: string;
+	created: string;
+	currentVersionId?: string;
+	versionNumber?: number;
+}
+
+export const emailTemplatesApi = {
+	list() {
+		return fetchWithAuth<{ templates: EmailTemplate[] }>('/email-templates');
+	},
+	get(id: string) {
+		return fetchWithAuth<{ template: EmailTemplate }>(`/email-templates/${id}`);
+	},
+	getVersions(id: string) {
+		return fetchWithAuth<{ versions: { id: string; versionNumber: number; created: string; subject: string | null }[] }>(`/email-templates/${id}/versions`);
+	},
+	create(data: Partial<EmailTemplate>) {
+		return fetchWithAuth<{ template: EmailTemplate }>('/email-templates', {
+			method: 'POST',
+			body: JSON.stringify(data)
+		});
+	},
+	update(id: string, data: Partial<EmailTemplate>) {
+		return fetchWithAuth<{ template: EmailTemplate }>(`/email-templates/${id}`, {
+			method: 'PUT',
+			body: JSON.stringify(data)
+		});
+	},
+	setLiveVersion(id: string, versionId: string) {
+		return fetchWithAuth<{ template: EmailTemplate }>(`/email-templates/${id}/live-version`, {
+			method: 'PATCH',
+			body: JSON.stringify({ versionId })
+		});
+	},
+	aiEdit(prompt: string, currentContent?: string, allTemplates?: EmailTemplate[], styleGuide?: string) {
+		return fetchWithAuth<{ result: string }>('/email-templates/ai-edit', {
+			method: 'POST',
+			body: JSON.stringify({ prompt, currentContent, allTemplates, styleGuide })
+		});
+	}
+};
+
 export interface KnowledgeEntry {
 	id: string;
 	language: string;

@@ -1,12 +1,11 @@
 import * as brevo from '@getbrevo/brevo';
 import { betterAuth } from "better-auth";
 import { drizzleAdapter } from "better-auth/adapters/drizzle";
+import { eq } from "drizzle-orm";
 import 'dotenv/config';
-import { drizzle } from 'drizzle-orm/node-postgres';
 import type { Context } from 'hono';
 import * as schema from '../../drizzle/schema.js';
-
-const db = drizzle(process.env.DATABASE_URL!);
+import { db } from './db.js';
 
 /**
  * In-memory store for verification links (used for testing)
@@ -93,11 +92,39 @@ export async function sendVerificationEmail({ user, url, token }: { user: { emai
       name: user.name || user.email,
     }];
 
-    // Set email content
-    sendSmtpEmail.subject = 'Bestätige deine E-Mail-Adresse - Empathy-Link';
-    
     const userName = user.name || 'Nutzer';
-    const htmlContent = `
+
+    // Set email content
+    let subject = 'Bestätige deine E-Mail-Adresse - Empathy-Link';
+    let htmlContent = '';
+    
+    // Try to fetch template from DB
+    try {
+        const result = await db.select({
+            subject: schema.emailTemplateVersions.subject,
+            content: schema.emailTemplateVersions.content
+        })
+        .from(schema.emailTemplates)
+        .innerJoin(schema.emailTemplateVersions, eq(schema.emailTemplates.currentVersionId, schema.emailTemplateVersions.id))
+        .where(eq(schema.emailTemplates.name, 'verification_email'))
+        .limit(1);
+
+        if (result.length > 0) {
+            const template = result[0];
+            if (template.subject) subject = template.subject;
+            if (template.content) {
+                htmlContent = template.content
+                    .replace(/\$\{userName\}/g, userName)
+                    .replace(/\$\{verificationUrl\}/g, verificationUrl)
+                    .replace(/\$\{year\}/g, new Date().getFullYear().toString());
+            }
+        }
+    } catch (e) {
+        console.warn('Failed to fetch email template, using default.', e);
+    }
+
+    if (!htmlContent) {
+        htmlContent = `
       <!DOCTYPE html>
       <html>
         <head>
@@ -139,6 +166,10 @@ export async function sendVerificationEmail({ user, url, token }: { user: { emai
         </body>
       </html>
     `;
+    }
+
+    sendSmtpEmail.subject = subject;
+    // sendSmtpEmail.htmlContent is set later
 
     const textContent = `
 Hallo ${userName}!
