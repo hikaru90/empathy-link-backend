@@ -659,7 +659,7 @@ export const crisisResources = pgTable("crisis_resources", {
 export const emailTemplates = pgTable("email_templates", {
 	id: uuid().defaultRandom().primaryKey().notNull(),
 	name: text().notNull(),
-	currentVersionId: uuid("current_version_id").references(() => emailTemplateVersions.id, { onDelete: 'set null' }),
+	currentVersionId: uuid("current_version_id"),
 	created: timestamp({ mode: 'string' }).defaultNow().notNull(),
 	updated: timestamp({ mode: 'string' }).defaultNow().notNull(),
 }, (table) => [
