@@ -1,10 +1,10 @@
 import { Hono } from 'hono';
-import { db } from '../lib/db';
-import { tokenUsage } from '../../drizzle/schema';
+import { db } from '../lib/db.js';
+import { tokenUsage } from '../../drizzle/schema.js';
 import { sql, desc, sum, eq, and, gte, lte } from 'drizzle-orm';
-import type { Context } from '../types/hono';
+import type { Env } from '../types/hono.js';
 
-const analytics = new Hono<Context>();
+const analytics = new Hono<Env>();
 
 // GET /api/analytics/token-usage - Get aggregated token usage stats
 analytics.get('/token-usage', async (c) => {

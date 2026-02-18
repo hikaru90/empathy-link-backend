@@ -1,5 +1,5 @@
-import { db } from './db';
-import { tokenUsage } from '../../drizzle/schema';
+import { db } from './db.js';
+import { tokenUsage } from '../../drizzle/schema.js';
 import { type InferInsertModel } from 'drizzle-orm';
 
 // Pricing per 1M tokens (as of Feb 2025, adjust as needed)

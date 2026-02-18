@@ -433,7 +433,7 @@ Analysiere in deutscher Sprache und gib die Werte als JSON zurück.`;
 			},
 			contents: [{ role: 'user', parts: [{ text: `Bitte analysiere dieses Gespräch:\n\n${filteredHistory}` }] }],
 			posthogDistinctId: userId
-		});
+		} as Parameters<typeof ai.models.generateContent>[0]);
 
 		// 8. Parse response
 		let analysisData: AnalysisResponse;
@@ -577,7 +577,7 @@ Wähle die Nummer des Zitats, das am besten zu dieser Person und ihrer Situation
 				},
 				contents: [{ role: 'user', parts: [{ text: quotePrompt }] }],
 				posthogDistinctId: userId
-			});
+			} as Parameters<typeof ai.models.generateContent>[0]);
 
 			console.log('📥 Full AI response object:', JSON.stringify(result, null, 2));
 			console.log('📥 Raw AI response text:', result.text);
@@ -974,7 +974,7 @@ Wähle die Nummer des Zitats, das am besten zu dieser Person und ihrer Situation
 			posthogProperties: {
 				context: 'inspirational_quote'
 			}
-		});
+		} as Parameters<typeof ai.models.generateContent>[0]);
 		
 		// Track token usage
 		if ((result as any).response?.usageMetadata) {
@@ -1283,7 +1283,7 @@ ${concatenatedHistory}
 			},
 			contents: [{ role: 'user', parts: [{ text: message }] }],
 			posthogDistinctId: userId
-		});
+		} as Parameters<typeof ai.models.generateContent>[0]);
 
 		// 6. Parse response
 		let extractedMemories: MemoryExtraction[];

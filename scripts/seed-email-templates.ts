@@ -154,7 +154,7 @@ async function main() {
       .set({ currentVersionId: newVersion.id })
       .where(eq(emailTemplates.id, templateId));
       
-    console.log(\`Template verification_email updated to version \${nextVersionNumber}.\`);
+    console.log(`Template verification_email updated to version ${nextVersionNumber}.`);
   }
 
   await pool.end();

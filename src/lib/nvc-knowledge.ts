@@ -807,7 +807,7 @@ Respond ONLY with a JSON object in the format:
 			context: 'learn_metadata_extraction',
 			language
 		}
-	});
+	} as Parameters<ReturnType<typeof getGenAIClient>['models']['generateContent']>[0]);
 		
 		// Track token usage
 	if ((result as any).response?.usageMetadata) {

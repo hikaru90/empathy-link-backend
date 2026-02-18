@@ -540,7 +540,7 @@ Antworte ausschließlich mit dem JSON-Array, keine zusätzlichen Erklärungen.`;
 				needs = JSON.parse(jsonMatch[0]);
 				if (!Array.isArray(needs)) needs = [];
 			} catch {
-				needs = trimmed.split(/[,\n]/).map((s) => s.replace(/^["'\s\-•]+|["'\s\-•]+$/g, '').trim()).filter(Boolean);
+				needs = trimmed.split(/[,\n]/).map((s: string) => s.replace(/^["'\s\-•]+|["'\s\-•]+$/g, '').trim()).filter(Boolean);
 			}
 		}
 
