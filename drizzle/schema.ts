@@ -1,5 +1,24 @@
 import { boolean, foreignKey, index, integer, jsonb, pgTable, real, text, timestamp, unique, uuid, vector } from "drizzle-orm/pg-core";
 
+export const tokenUsage = pgTable("token_usage", {
+	id: uuid("id").defaultRandom().primaryKey().notNull(),
+	userId: text("user_id"), // Optional: some usage might be system-wide or anonymous
+	chatId: text("chat_id"), // Optional: some usage might not be tied to a specific chat
+	application: text("application").default('web').notNull(), // 'web', 'mobile', 'api', etc.
+	context: text("context").notNull(), // e.g., 'message', 'analysis', 'tool-call', 'summary'
+	model: text("model").notNull(), // e.g., 'gemini-1.5-flash'
+	inputTokens: integer("input_tokens").default(0).notNull(),
+	outputTokens: integer("output_tokens").default(0).notNull(),
+	totalTokens: integer("total_tokens").default(0).notNull(),
+	cost: real("cost").default(0).notNull(), // Calculated cost in USD (or base currency)
+	metadata: text("metadata"), // JSON stored as text for extra details
+	created: timestamp("created", { mode: 'string' }).defaultNow().notNull(),
+}, (table) => [
+	index("token_usage_user_idx").using("btree", table.userId.asc().nullsLast().op("text_ops")),
+	index("token_usage_chat_idx").using("btree", table.chatId.asc().nullsLast().op("text_ops")),
+	index("token_usage_app_idx").using("btree", table.application.asc().nullsLast().op("text_ops")),
+	index("token_usage_created_idx").using("btree", table.created.asc().nullsLast().op("timestamp_ops")),
+]);
 
 
 export const memories = pgTable("memories", {

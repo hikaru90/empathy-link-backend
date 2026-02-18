@@ -25,6 +25,8 @@ export interface ToolCallResponse {
 /**
  * Get tool calls from AI using Gemini 2.5 with JSON structured output
  */
+import { trackTokenUsage } from './token-usage.js';
+
 export async function getToolCalls(request: ToolCallRequest): Promise<ToolCallResponse> {
 	const ai = getAiClient();
 	const locale = request.context?.locale || 'de';
@@ -142,8 +144,9 @@ Always respond with a JSON object in the following format:
 	console.log('🔧 Requesting tool calls from AI...');
 	console.log('📝 User message:', request.message.substring(0, 100));
 
+	const modelName = 'gemini-2.5-flash-lite';
 	const chat = ai.chats.create({
-		model: 'gemini-2.5-flash-lite',
+		model: modelName,
 		config: {
 			temperature: 0.3,
 			maxOutputTokens: 1024,
@@ -153,7 +156,29 @@ Always respond with a JSON object in the following format:
 		}
 	});
 
-	const result = await chat.sendMessage({ message: prompt });
+	const result = await chat.sendMessage({ 
+		message: prompt,
+		// @ts-ignore
+		posthogDistinctId: request.context?.userId,
+		posthogProperties: {
+			context: 'tool_call_router',
+			chatId: request.context?.chatId
+		}
+	});
+	
+	// Track token usage
+	if ((result as any).response?.usageMetadata) {
+		const usage = (result as any).response.usageMetadata;
+		await trackTokenUsage({
+			userId: request.context?.userId, // Assuming userId might be in context
+			chatId: request.context?.chatId, // Assuming chatId might be in context
+			context: 'tool_call_router',
+			model: modelName,
+			inputTokens: usage.promptTokenCount || 0,
+			outputTokens: usage.candidatesTokenCount || 0,
+		});
+	}
+
 	const responseText = result.text || '{}';
 
 	console.log('📥 Tool call response:', responseText);

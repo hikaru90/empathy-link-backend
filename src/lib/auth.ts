@@ -124,48 +124,19 @@ export async function sendVerificationEmail({ user, url, token }: { user: { emai
     }
 
     if (!htmlContent) {
+        console.warn('⚠️ Verification email template "verification_email" not found in database. Using minimal fallback.');
         htmlContent = `
-      <!DOCTYPE html>
-      <html>
-        <head>
-          <meta charset="utf-8">
-          <meta name="viewport" content="width=device-width, initial-scale=1.0">
-        </head>
-        <body style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif; line-height: 1.6; color: #333; max-width: 600px; margin: 0 auto; padding: 20px;">
-          <div style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); padding: 30px; border-radius: 10px 10px 0 0; text-align: center;">
-            <h1 style="color: white; margin: 0; font-size: 28px;">Empathy-Link</h1>
-          </div>
-          <div style="background: #ffffff; padding: 40px; border-radius: 0 0 10px 10px; box-shadow: 0 2px 10px rgba(0,0,0,0.1);">
-            <h2 style="color: #333; margin-top: 0;">Hallo ${userName}!</h2>
-            <p style="color: #666; font-size: 16px;">
-              Vielen Dank für deine Registrierung bei Empathy-Link. Um dein Konto zu aktivieren, 
-              bitte bestätige deine E-Mail-Adresse, indem du auf den folgenden Button klickst:
-            </p>
-            <div style="text-align: center; margin: 30px 0;">
-              <a href="${verificationUrl}" 
-                 style="display: inline-block; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); 
-                        color: white; text-decoration: none; padding: 15px 30px; 
-                        border-radius: 25px; font-weight: bold; font-size: 16px;">
-                E-Mail bestätigen
-              </a>
-            </div>
-            <p style="color: #666; font-size: 14px; margin-top: 30px;">
-              Falls der Button nicht funktioniert, kopiere diesen Link in deinen Browser:
-            </p>
-            <p style="color: #667eea; font-size: 12px; word-break: break-all; background: #f5f5f5; padding: 10px; border-radius: 5px;">
-              ${verificationUrl}
-            </p>
-            <p style="color: #999; font-size: 12px; margin-top: 30px; border-top: 1px solid #eee; padding-top: 20px;">
-              Dieser Link ist 24 Stunden gültig. Falls du diese E-Mail nicht angefordert hast, 
-              kannst du sie einfach ignorieren.
-            </p>
-          </div>
-          <div style="text-align: center; margin-top: 20px; color: #999; font-size: 12px;">
-            <p>© ${new Date().getFullYear()} Empathy-Link. Alle Rechte vorbehalten.</p>
-          </div>
+        <!DOCTYPE html>
+        <html>
+        <head><meta charset="utf-8"></head>
+        <body style="font-family: sans-serif; padding: 20px;">
+            <h2>E-Mail bestätigen</h2>
+            <p>Hallo ${userName},</p>
+            <p>Bitte bestätige deine E-Mail-Adresse, indem du auf diesen Link klickst:</p>
+            <p><a href="${verificationUrl}">${verificationUrl}</a></p>
+            <p><small>Link gültig für 24 Stunden.</small></p>
         </body>
-      </html>
-    `;
+        </html>`;
     }
 
     sendSmtpEmail.subject = subject;

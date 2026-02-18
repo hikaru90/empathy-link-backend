@@ -2,9 +2,19 @@
  * Gemini AI client for chat functionality
  */
 
-import { GoogleGenAI } from '@google/genai';
+import { GoogleGenAI } from '@posthog/ai';
+import { PostHog } from 'posthog-node';
 import type { HistoryEntry } from './encryption.js';
 import { CONVERSATION_PATHS } from './paths.js';
+
+// Initialize PostHog client
+let posthogClient: PostHog | null = null;
+if (process.env.POSTHOG_API_KEY) {
+	posthogClient = new PostHog(
+		process.env.POSTHOG_API_KEY,
+		{ host: process.env.POSTHOG_HOST || 'https://us.i.posthog.com' }
+	);
+}
 
 // Initialize Gemini AI client
 let aiClient: GoogleGenAI | null = null;
@@ -15,7 +25,17 @@ function getAiClient(): GoogleGenAI {
 		if (!apiKey) {
 			throw new Error('GEMINI_API_KEY environment variable is required');
 		}
-		aiClient = new GoogleGenAI({ apiKey });
+		
+		if (posthogClient) {
+			aiClient = new GoogleGenAI({ 
+				apiKey,
+				posthog: posthogClient
+			});
+		} else {
+			console.warn('PostHog API key not found, initializing Gemini without analytics');
+			// @ts-ignore - GoogleGenAI constructor from @posthog/ai works with just apiKey too
+			aiClient = new GoogleGenAI({ apiKey });
+		}
 	}
 	return aiClient;
 }
@@ -78,16 +98,18 @@ export function convertHistoryToGemini(dbHistory: HistoryEntry[], maxMessages: n
 	return recentMessages;
 }
 
-/**
- * Send a message to Gemini and get AI response
- */
+import { trackTokenUsage } from './token-usage.js';
+
 export async function getAiResponse(
 	message: string,
 	history: HistoryEntry[],
-	systemInstruction: string
+	systemInstruction: string,
+	userId?: string,
+	chatId?: string
 ): Promise<string> {
 	try {
 		const ai = getAiClient();
+		const modelName = 'gemini-2.5-flash';
 
 		// Convert history to Gemini format
 		const geminiHistory = convertHistoryToGemini(history);
@@ -99,8 +121,9 @@ export async function getAiResponse(
 		});
 
 		// Create chat with system instruction and history
+		// @ts-ignore - The PostHog wrapper might not fully match the @google/genai types yet for chats
 		const chat = ai.chats.create({
-			model: 'gemini-2.5-flash',
+			model: modelName,
 			config: {
 				temperature: 0.7,
 				topP: 0.95,
@@ -112,7 +135,29 @@ export async function getAiResponse(
 		});
 
 		// Send the new message
-		const result = await chat.sendMessage({ message });
+		// @ts-ignore - Pass posthogDistinctId if available
+		const result = await chat.sendMessage({ 
+			message,
+			posthogDistinctId: userId,
+			posthogTraceId: chatId, // Track chat ID as trace ID
+			posthogProperties: { 
+				application: 'empathy-link-backend',
+				context: 'chat_message'
+			}
+		});
+
+		// Track token usage
+		if ((result as any).response?.usageMetadata) {
+			const usage = (result as any).response.usageMetadata;
+			await trackTokenUsage({
+				userId,
+				chatId,
+				context: 'chat_message',
+				model: modelName,
+				inputTokens: usage.promptTokenCount || 0,
+				outputTokens: usage.candidatesTokenCount || 0,
+			});
+		}
 
 		const responseText = result.text || '';
 
@@ -147,13 +192,15 @@ export async function getAiResponseWithRetry(
 	message: string,
 	history: HistoryEntry[],
 	systemInstruction: string,
-	maxRetries: number = 3
+	maxRetries: number = 3,
+	userId?: string,
+	chatId?: string
 ): Promise<string> {
 	let lastError: Error | null = null;
 
 	for (let attempt = 0; attempt < maxRetries; attempt++) {
 		try {
-			return await getAiResponse(message, history, systemInstruction);
+			return await getAiResponse(message, history, systemInstruction, userId, chatId);
 		} catch (error) {
 			lastError = error instanceof Error ? error : new Error('Unknown error');
 
@@ -260,6 +307,7 @@ Antworte ausschließlich mit einem JSON-Objekt:
   "currentPathComplete": boolean
 }`;
 
+		// @ts-ignore
 		const model = ai.chats.create({
 			model: 'gemini-2.5-flash',
 			config: {
@@ -278,7 +326,26 @@ ${recentHistory.slice(-4).map(h => `${h.role}: ${h.content}`).join('\n')}
 
 Analysiere diese Nachricht und bestimme, ob der Nutzer vom aktuellen Pfad "${currentPath}" zu einem anderen Pfad wechseln möchte.`;
 
-		const result = await model.sendMessage({ message: contextMessage });
+		// @ts-ignore
+		const result = await model.sendMessage({ 
+			message: contextMessage,
+			posthogProperties: { 
+				context: 'path_switching',
+				currentPath
+			}
+		});
+
+		// Track token usage
+		if ((result as any).response?.usageMetadata) {
+			const usage = (result as any).response.usageMetadata;
+			await trackTokenUsage({
+				context: 'path_switching',
+				model: 'gemini-2.5-flash',
+				inputTokens: usage.promptTokenCount || 0,
+				outputTokens: usage.candidatesTokenCount || 0,
+			});
+		}
+
 		const responseText = result.text || '{}';
 
 		// Clean the response text
@@ -328,12 +395,18 @@ export async function classifySafetyRisk(message: string): Promise<SafetySeverit
 WICHTIG: Du speicherst oder loggst NIEMALS den Nachrichteninhalt. Du gibst NUR einen von drei Werten zurück.
 
 Schweregrade:
-- "none": Keine Hinweise auf Krise, Selbstverletzung oder Suizidalität. Normale emotionale Belastung, Traurigkeit oder Stress sind KEIN "moderate".
+- "none": Keine Hinweise auf Krise, Selbstverletzung oder Suizidalität. Normale emotionale Belastung, Traurigkeit oder Stress. AUCH: Zwanghafte Verhaltensweisen wie "Skin Picking" (Dermatillomanie), "Pickel ausdrücken", "Nägelkauen" fallen unter "none", solange keine Suizidabsicht oder schwere körperliche Gefahr besteht.
 - "moderate": Deutliche Anzeichen von Hoffnungslosigkeit, schwerer Verzweiflung, oder vage Andeutungen, die auf Krise hindeuten könnten. Noch keine klare Absicht.
-- "severe": Klare Hinweise auf Selbstverletzung, Suizidgedanken, konkrete Pläne oder unmittelbare Krise. Nutzer äußert explizit oder implizit den Wunsch, sich zu verletzen oder das Leben zu beenden.
+- "severe": Klare Hinweise auf LEBENSBEDROHLICHE Selbstverletzung, Suizidgedanken, konkrete Pläne oder unmittelbare Krise. Nutzer äußert explizit oder implizit den Wunsch, sich das Leben zu nehmen oder sich schwer zu verletzen (z.B. "Ritzen", "Schneiden" als Ausdruck von Suizidalität).
+
+WICHTIGE ABGRENZUNG:
+- Zwanghaftes Hautzupfen/Knibbeln (Skin Picking) ist KEINE Suizidalität → "none".
+- Selbstverletzendes Verhalten mit Suizidabsicht → "severe".
 
 Beispiele (nur zur Orientierung, nicht exhaustive):
 - "Ich bin traurig" → none
+- "Ich kann nicht aufhören an meiner Haut zu zupfen (Skin Picking)" → none
+- "Ich habe meine Pickel aufgekratzt bis es blutet" → none
 - "Ich fühle mich hoffnungslos" → moderate
 - "Ich will nicht mehr" / "Es hat keinen Sinn" → moderate
 - "Ich denke daran, mir etwas anzutun" → severe
@@ -342,6 +415,7 @@ Beispiele (nur zur Orientierung, nicht exhaustive):
 Antworte AUSSCHLIESSLICH mit einem JSON-Objekt, sonst nichts:
 {"severity":"none"|"moderate"|"severe"}`;
 
+		// @ts-ignore
 		const model = ai.chats.create({
 			model: 'gemini-2.5-flash',
 			config: {
@@ -350,7 +424,25 @@ Antworte AUSSCHLIESSLICH mit einem JSON-Objekt, sonst nichts:
 			}
 		});
 
-		const result = await model.sendMessage({ message: `Nachricht zur Bewertung:\n${message}` });
+		// @ts-ignore
+		const result = await model.sendMessage({ 
+			message: `Nachricht zur Bewertung:\n${message}`,
+			posthogProperties: {
+				context: 'safety_check'
+			}
+		});
+		
+		// Track token usage
+		if ((result as any).response?.usageMetadata) {
+			const usage = (result as any).response.usageMetadata;
+			await trackTokenUsage({
+				context: 'safety_check',
+				model: 'gemini-2.5-flash',
+				inputTokens: usage.promptTokenCount || 0,
+				outputTokens: usage.candidatesTokenCount || 0,
+			});
+		}
+
 		const responseText = result.text || '{"severity":"none"}';
 
 		let cleaned = responseText.trim();

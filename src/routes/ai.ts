@@ -176,6 +176,8 @@ ai.post('/update-prompt-scores', async (c: Context) => {
 	}
 });
 
+import { trackTokenUsage } from '../lib/token-usage.js';
+
 // POST /api/ai/learn/askQuestion - Ask AI a question based on user's answer
 ai.post('/learn/askQuestion', async (c: Context) => {
 	const user = c.get('user');
@@ -193,8 +195,9 @@ ai.post('/learn/askQuestion', async (c: Context) => {
 		console.log('systemPrompt', systemPrompt);
 
 		const ai = getAiClient();
+		const modelName = 'gemini-2.5-flash';
 		const chat = ai.chats.create({
-			model: 'gemini-2.5-flash',
+			model: modelName,
 			config: {
 				systemInstruction: systemPrompt,
 				temperature: 0.7,
@@ -204,8 +207,27 @@ ai.post('/learn/askQuestion', async (c: Context) => {
 
 		const prompt = `Question: ${question}\n\nUser's Answer: ${userAnswer}`;
 		
-		const result = await chat.sendMessage({ message: prompt });
+		// @ts-ignore
+		const result = await chat.sendMessage({ 
+			message: prompt,
+			posthogDistinctId: user.id,
+			posthogProperties: {
+				context: 'learn_question'
+			}
+		});
 		const response = result.text;
+
+		// Track token usage
+		if ((result as any).response?.usageMetadata) {
+			const usage = (result as any).response.usageMetadata;
+			await trackTokenUsage({
+				userId: user.id,
+				context: 'learn_question',
+				model: modelName,
+				inputTokens: usage.promptTokenCount || 0,
+				outputTokens: usage.candidatesTokenCount || 0,
+			});
+		}
 
 		if (!response) {
 			throw new Error('No response from AI');
@@ -293,8 +315,9 @@ Erstelle eine einfühlsame Zusammenfassung dieser Selbstreflexion, die der Perso
 		}
 
 		const aiClient = getAiClient();
+		const modelName = 'gemini-2.5-flash';
 		const chat = aiClient.chats.create({
-			model: 'gemini-2.5-flash',
+			model: modelName,
 			config: {
 				systemInstruction: systemPrompt,
 				temperature: 0.7,
@@ -303,8 +326,27 @@ Erstelle eine einfühlsame Zusammenfassung dieser Selbstreflexion, die der Perso
 		});
 
 		console.log('Sending message to Gemini:', prompt.substring(0, 100) + '...');
-		const result = await chat.sendMessage({ message: prompt });
+		// @ts-ignore
+		const result = await chat.sendMessage({ 
+			message: prompt,
+			posthogDistinctId: user.id,
+			posthogProperties: {
+				context: 'feelings_detective'
+			}
+		});
 		console.log('Gemini result:', result);
+
+		// Track token usage
+		if ((result as any).response?.usageMetadata) {
+			const usage = (result as any).response.usageMetadata;
+			await trackTokenUsage({
+				userId: user.id,
+				context: 'feelings_detective',
+				model: modelName,
+				inputTokens: usage.promptTokenCount || 0,
+				outputTokens: usage.candidatesTokenCount || 0,
+			});
+		}
 
 		// Extract text from the response - handle both direct text and candidates structure
 		let response = result.text;
@@ -421,7 +463,14 @@ Erstelle eine einfühlsame Zusammenfassung dieser Selbstreflexion, die der Perso
 		});
 
 		console.log('NeedsDetective: Sending message to Gemini:', prompt.substring(0, 100) + '...');
-		const result = await chat.sendMessage({ message: prompt });
+		// @ts-ignore
+		const result = await chat.sendMessage({ 
+			message: prompt,
+			posthogDistinctId: user.id,
+			posthogProperties: {
+				context: 'needs_detective'
+			}
+		});
 
 		let response = result.text;
 
@@ -483,7 +532,14 @@ Antworte ausschließlich mit dem JSON-Array, keine zusätzlichen Erklärungen.`;
 			},
 		});
 
-		const result = await chat.sendMessage({ message: prompt });
+		// @ts-ignore
+		const result = await chat.sendMessage({ 
+			message: prompt,
+			posthogDistinctId: user.id,
+			posthogProperties: {
+				context: 'needs_rubiks_cube'
+			}
+		});
 		let response = result.text;
 
 		if (!response && result.candidates && result.candidates.length > 0) {

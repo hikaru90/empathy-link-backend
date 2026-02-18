@@ -324,8 +324,8 @@ app.use('/public/*', serveStatic({
 }));
 
 // Serve static files from dashboard directory (after API routes)
-// Use process.cwd() to get the project root, which works regardless of where the code is compiled
-const staticPath = join(process.cwd(), 'dashboard/dist');
+// Use relative path to avoid issues with absolute paths in serveStatic
+const staticPath = './dashboard/dist';
 
 // Serve static assets (JS, CSS, images, etc.)
 app.use('/*', async (c, next) => {
@@ -350,7 +350,7 @@ app.get('*', async (c) => {
 	}
 	
 	try {
-		const indexHtml = readFileSync(join(staticPath, 'index.html'), 'utf-8');
+		const indexHtml = readFileSync(join(process.cwd(), staticPath, 'index.html'), 'utf-8');
 		return c.html(indexHtml);
 	} catch (error) {
 		console.error('Failed to load dashboard index.html:', error);

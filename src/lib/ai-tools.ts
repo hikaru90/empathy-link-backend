@@ -788,6 +788,8 @@ const QUOTE_BACKLOG = [
  * Generate and store inspirational quote based on user's recent stats
  * Now selects from predefined quote backlog using AI
  */
+import { trackTokenUsage } from './token-usage.js';
+
 async function generateAndStoreInspirationalQuote(
 	userId: string,
 	currentAnalysis?: AnalysisResponse
@@ -796,6 +798,7 @@ async function generateAndStoreInspirationalQuote(
 
 	try {
 		const ai = getAiClient();
+		const modelName = 'gemini-2.5-flash';
 
 		// Use current analysis if provided, otherwise fetch from database
 		let allFeelings: string[] = [];
@@ -945,7 +948,7 @@ ${quotesList}
 Wähle die Nummer des Zitats, das am besten zu dieser Person und ihrer Situation passt.`;
 
 		const chat = ai.chats.create({
-			model: 'gemini-2.5-flash',
+			model: modelName,
 			config: {
 				temperature: 0.7, // Higher temperature for more variety in selection
 				maxOutputTokens: 50, // Increased to ensure complete JSON response
@@ -964,8 +967,27 @@ Wähle die Nummer des Zitats, das am besten zu dieser Person und ihrer Situation
 			}
 		});
 
-		const result = await chat.sendMessage({ message: contextPrompt });
+		const result = await chat.sendMessage({ 
+			message: contextPrompt,
+			// @ts-ignore
+			posthogDistinctId: userId,
+			posthogProperties: {
+				context: 'inspirational_quote'
+			}
+		});
 		
+		// Track token usage
+		if ((result as any).response?.usageMetadata) {
+			const usage = (result as any).response.usageMetadata;
+			await trackTokenUsage({
+				userId,
+				context: 'inspirational_quote_selection',
+				model: modelName,
+				inputTokens: usage.promptTokenCount || 0,
+				outputTokens: usage.candidatesTokenCount || 0,
+			});
+		}
+
 		console.log('📥 Raw AI response:', result.text);
 		console.log('📥 Response type:', typeof result.text);
 

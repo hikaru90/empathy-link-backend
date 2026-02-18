@@ -80,14 +80,38 @@ export async function generateNVCEmbedding(
 		
 		// Format text for better embedding quality
 		const formattedText = `[NVC Knowledge ${language.toUpperCase()}] ${text}`;
+		const modelName = 'gemini-embedding-001';
 		
 		const response = await ai.models.embedContent({
-			model: 'gemini-embedding-001',
+			model: modelName,
 			contents: formattedText,
 			config: {
 				outputDimensionality: 768
+			},
+			// @ts-ignore
+			posthogProperties: {
+				context: 'nvc_knowledge_embedding',
+				language
 			}
 		});
+
+		// Track token usage for embedding
+		// Note: The Google GenAI SDK might not return usage metadata for embeddings in the same way,
+		// but if it does or if we can estimate, we should track it.
+		// For embeddings, it's usually just input tokens.
+		// Assuming ~1.3 tokens per word as rough estimate if not provided, or checking response.
+		
+		// @ts-ignore - Check if usageMetadata exists on response
+		if (response.usageMetadata) {
+			// @ts-ignore
+			const usage = response.usageMetadata;
+			await trackTokenUsage({
+				context: 'nvc_knowledge_embedding',
+				model: modelName,
+				inputTokens: usage.promptTokenCount || 0,
+				outputTokens: 0,
+			});
+		}
 
 		// Check both singular and plural forms (SDK might use either)
 		let values: number[] | undefined;
@@ -718,12 +742,15 @@ interface GeminiLearnExtraction {
 	usedConcepts: string[];
 }
 
+import { trackTokenUsage } from './token-usage.js';
+
 /**
  * Call Gemini to extract title, tags, summary, used concepts from learn content
  */
 async function extractLearnMetadataWithGemini(rawContent: string, language: 'de' | 'en'): Promise<GeminiLearnExtraction> {
 	const ai = getGenAIClient();
 	const isGerman = language === 'de';
+	const modelName = 'gemini-2.5-flash';
 
 	const systemInstruction = isGerman
 		? `Du bist ein Experte für Gewaltfreie Kommunikation (GFK). Analysiere den gegebenen Lerninhalt und extrahiere strukturierte Metadaten.
@@ -767,7 +794,7 @@ Respond ONLY with a JSON object in the format:
 	};
 
 	const chat = ai.chats.create({
-		model: 'gemini-2.5-flash',
+		model: modelName,
 		config: {
 			temperature: 0.3,
 			maxOutputTokens: 1024,
@@ -777,9 +804,24 @@ Respond ONLY with a JSON object in the format:
 		}
 	});
 
-	const result = await chat.sendMessage({
-		message: `Lerninhalt:\n\n${rawContent.substring(0, 15000)}`
-	});
+		const result = await chat.sendMessage({ 
+			message: `Lerninhalt:\n\n${rawContent.substring(0, 15000)}`,
+			posthogProperties: {
+				context: 'learn_metadata_extraction',
+				language
+			}
+		});
+		
+		// Track token usage
+	if ((result as any).response?.usageMetadata) {
+		const usage = (result as any).response.usageMetadata;
+		await trackTokenUsage({
+			context: 'learn_metadata_extraction',
+			model: modelName,
+			inputTokens: usage.promptTokenCount || 0,
+			outputTokens: usage.candidatesTokenCount || 0,
+		});
+	}
 
 	const text = result.text || '{}';
 	const cleaned = text.replace(/```json\n?/g, '').replace(/```\n?/g, '').trim();

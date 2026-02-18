@@ -468,19 +468,38 @@
 
 			<div class="grid gap-4">
 				{#each templates as template}
-					<button class="bg-white p-4 rounded-xl border border-gray-200 shadow-sm flex justify-between items-center hover:shadow-md transition-shadow" on:click={() => startEdit(template)}>
-						<div class="flex flex-col justify-start items-start">
-							<h3 class="font-semibold text-lg">{template.name}</h3>
-							<p class="text-gray-500 text-sm">{template.subject || '(No subject)'}</p>
-							<p class="text-xs text-gray-400 mt-1">
-								Version: {template.versionNumber || 1} • Updated: {formatDate(template.updated)}
-							</p>
+					<button class="bg-white p-4 rounded-xl border border-gray-200 shadow-sm flex justify-between items-center hover:shadow-md transition-shadow group" on:click={() => startEdit(template)}>
+						<div class="flex gap-4 items-center w-full">
+							<!-- Small Preview -->
+							<div class="w-16 h-16 bg-gray-100 rounded-lg overflow-hidden border border-gray-200 flex-shrink-0 relative">
+                                {#if template.content}
+                                    <iframe 
+                                        title="Preview"
+                                        srcdoc={template.content.replace(/<script\b[^>]*>([\s\S]*?)<\/script>/g, "")}
+                                        class="w-[400px] h-[400px] absolute top-0 left-0 origin-top-left scale-[0.16] pointer-events-none bg-white"
+                                        tabindex="-1"
+                                    ></iframe>
+                                {:else}
+                                    <div class="w-full h-full flex items-center justify-center text-gray-300">
+                                        <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect><line x1="3" y1="9" x2="21" y2="9"></line><line x1="9" y1="21" x2="9" y2="9"></line></svg>
+                                    </div>
+                                {/if}
+							</div>
+							
+							<div class="flex flex-col justify-start items-start flex-1 min-w-0">
+								<h3 class="font-semibold text-lg truncate w-full text-left">{template.name}</h3>
+								<p class="text-gray-500 text-sm truncate w-full text-left">{template.subject || '(No subject)'}</p>
+								<p class="text-xs text-gray-400 mt-1">
+									Version: {template.versionNumber || 1} • Updated: {formatDate(template.updated)}
+								</p>
+							</div>
 						</div>
-						<button 
-							class="px-3 py-1.5 border border-blue-200 text-blue-700 rounded-lg hover:bg-blue-50"
+						
+						<div 
+							class="px-3 py-1.5 border border-blue-200 text-blue-700 rounded-lg group-hover:bg-blue-50 transition-colors ml-4"
 						>
 							Edit
-						</button>
+						</div>
 					</button>
 				{/each}
 				
