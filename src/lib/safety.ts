@@ -37,7 +37,7 @@ export async function processSafetyDetection(
 	userId: string,
 	message: string
 ): Promise<{ level: SafetyLevel; triggered: boolean }> {
-	const severity = await classifySafetyRisk(message);
+	const severity = await classifySafetyRisk(message, userId);
 	if (severity === 'none') {
 		const current = await getSafetyLevel(userId);
 		return { level: current, triggered: false };

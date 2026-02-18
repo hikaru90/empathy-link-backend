@@ -145,7 +145,7 @@ Always respond with a JSON object in the following format:
 	console.log('📝 User message:', request.message.substring(0, 100));
 
 	const modelName = 'gemini-2.5-flash-lite';
-	const chat = ai.chats.create({
+	const result = await ai.models.generateContent({
 		model: modelName,
 		config: {
 			temperature: 0.3,
@@ -153,12 +153,8 @@ Always respond with a JSON object in the following format:
 			systemInstruction,
 			responseMimeType: 'application/json',
 			responseSchema
-		}
-	});
-
-	const result = await chat.sendMessage({ 
-		message: prompt,
-		// @ts-ignore
+		},
+		contents: [{ role: 'user', parts: [{ text: prompt }] }],
 		posthogDistinctId: request.context?.userId,
 		posthogProperties: {
 			context: 'tool_call_router',

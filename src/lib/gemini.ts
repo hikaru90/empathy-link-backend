@@ -2,39 +2,53 @@
  * Gemini AI client for chat functionality
  */
 
-import { GoogleGenAI } from '@posthog/ai';
+import 'dotenv/config';
+import { GoogleGenAI as GoogleGenAI_PostHog } from '@posthog/ai';
+import { GoogleGenAI as GoogleGenAI_Official } from '@google/genai';
 import { PostHog } from 'posthog-node';
 import type { HistoryEntry } from './encryption.js';
-import { CONVERSATION_PATHS } from './paths.js';
 
-// Initialize PostHog client
+// Lazy-initialized so env is loaded (e.g. dotenv) before we read POSTHOG_API_KEY
 let posthogClient: PostHog | null = null;
-if (process.env.POSTHOG_API_KEY) {
-	posthogClient = new PostHog(
-		process.env.POSTHOG_API_KEY,
-		{ host: process.env.POSTHOG_HOST || 'https://us.i.posthog.com' }
-	);
+
+function getPosthogClient(): PostHog | null {
+	if (posthogClient === null && process.env.POSTHOG_API_KEY) {
+		posthogClient = new PostHog(
+			process.env.POSTHOG_API_KEY,
+			{ host: process.env.POSTHOG_HOST || 'https://eu.i.posthog.com' }
+		);
+	}
+	return posthogClient;
+}
+
+/** Use this in other modules to only add posthog* params when PostHog is enabled. */
+export function isPostHogEnabled(): boolean {
+	return !!getPosthogClient();
 }
 
 // Initialize Gemini AI client
-let aiClient: GoogleGenAI | null = null;
+// We use 'any' type here because the two clients have slightly different interfaces (wrapper vs official)
+// but we only use common methods like models.generateContent
+let aiClient: any | null = null;
 
-function getAiClient(): GoogleGenAI {
+function getAiClient(): any {
 	if (!aiClient) {
 		const apiKey = process.env.GEMINI_API_KEY;
 		if (!apiKey) {
 			throw new Error('GEMINI_API_KEY environment variable is required');
 		}
 		
-		if (posthogClient) {
-			aiClient = new GoogleGenAI({ 
+		const phClient = getPosthogClient();
+		if (phClient) {
+			console.log('Initializing Gemini with PostHog analytics');
+			aiClient = new GoogleGenAI_PostHog({
 				apiKey,
-				posthog: posthogClient
+				posthog: phClient
 			});
 		} else {
 			console.warn('PostHog API key not found, initializing Gemini without analytics');
-			// @ts-ignore - GoogleGenAI constructor from @posthog/ai works with just apiKey too
-			aiClient = new GoogleGenAI({ apiKey });
+			// Use the official client directly to avoid bugs in the wrapper when PostHog is missing
+			aiClient = new GoogleGenAI_Official({ apiKey });
 		}
 	}
 	return aiClient;
@@ -120,9 +134,16 @@ export async function getAiResponse(
 			systemInstructionLength: systemInstruction.length
 		});
 
-		// Create chat with system instruction and history
-		// @ts-ignore - The PostHog wrapper might not fully match the @google/genai types yet for chats
-		const chat = ai.chats.create({
+		// Create contents array from history and new message
+		const contents = [
+			...geminiHistory,
+			{
+				role: 'user',
+				parts: [{ text: message }]
+			}
+		];
+
+		const requestOptions: any = {
 			model: modelName,
 			config: {
 				temperature: 0.7,
@@ -131,24 +152,33 @@ export async function getAiResponse(
 				maxOutputTokens: 8192,
 				systemInstruction
 			},
-			history: geminiHistory
-		});
+			contents
+		};
 
-		// Send the new message
-		// @ts-ignore - Pass posthogDistinctId if available
-		const result = await chat.sendMessage({ 
-			message,
-			posthogDistinctId: userId,
-			posthogTraceId: chatId, // Track chat ID as trace ID
-			posthogProperties: { 
+		// Only add PostHog params if we are using the PostHog-wrapped client
+		if (getPosthogClient()) {
+			requestOptions.posthogDistinctId = userId;
+			requestOptions.posthogTraceId = chatId;
+			requestOptions.posthogProperties = { 
 				application: 'empathy-link-backend',
 				context: 'chat_message'
-			}
-		});
+			};
+		}
+
+		// Both clients support models.generateContent, but PostHog wrapper adds extra params
+		const result = await ai.models.generateContent(requestOptions);
 
 		// Track token usage
+		// Official SDK puts usageMetadata in response directly sometimes, or usageMetadata property
+		// Wrapper puts it in response.usageMetadata
+		let usage: any;
 		if ((result as any).response?.usageMetadata) {
-			const usage = (result as any).response.usageMetadata;
+			usage = (result as any).response.usageMetadata;
+		} else if ((result as any).usageMetadata) {
+			usage = (result as any).usageMetadata;
+		}
+
+		if (usage) {
 			await trackTokenUsage({
 				userId,
 				chatId,
@@ -231,7 +261,8 @@ export async function analyzePathSwitchingIntent(
 	message: string,
 	currentPath: string,
 	recentHistory: Array<{ role: string; content: string }>,
-	locale: string = 'de'
+	locale: string = 'de',
+	userId?: string
 ): Promise<PathSwitchAnalysis> {
 	console.log('::analyzePathSwitchingIntent - Received currentPath:', currentPath);
 	console.log('::analyzePathSwitchingIntent - User message:', message);
@@ -307,15 +338,6 @@ Antworte ausschließlich mit einem JSON-Objekt:
   "currentPathComplete": boolean
 }`;
 
-		// @ts-ignore
-		const model = ai.chats.create({
-			model: 'gemini-2.5-flash',
-			config: {
-				temperature: 0.1,
-				systemInstruction: systemPrompt
-			}
-		});
-
 		// Include recent context for better analysis
 		const contextMessage = `AKTUELLER PFAD: ${currentPath}
 
@@ -326,18 +348,35 @@ ${recentHistory.slice(-4).map(h => `${h.role}: ${h.content}`).join('\n')}
 
 Analysiere diese Nachricht und bestimme, ob der Nutzer vom aktuellen Pfad "${currentPath}" zu einem anderen Pfad wechseln möchte.`;
 
-		// @ts-ignore
-		const result = await model.sendMessage({ 
-			message: contextMessage,
-			posthogProperties: { 
+		const requestOptions: any = {
+			model: 'gemini-2.5-flash',
+			config: {
+				temperature: 0.1,
+				systemInstruction: systemPrompt
+			},
+			contents: [{ role: 'user', parts: [{ text: contextMessage }] }]
+		};
+
+		if (getPosthogClient()) {
+			requestOptions.posthogProperties = { 
 				context: 'path_switching',
 				currentPath
-			}
-		});
+			};
+			if (userId) requestOptions.posthogDistinctId = userId;
+		}
+
+		// @ts-ignore
+		const result = await ai.models.generateContent(requestOptions);
 
 		// Track token usage
+		let usage: any;
 		if ((result as any).response?.usageMetadata) {
-			const usage = (result as any).response.usageMetadata;
+			usage = (result as any).response.usageMetadata;
+		} else if ((result as any).usageMetadata) {
+			usage = (result as any).usageMetadata;
+		}
+
+		if (usage) {
 			await trackTokenUsage({
 				context: 'path_switching',
 				model: 'gemini-2.5-flash',
@@ -386,7 +425,7 @@ export type SafetySeverity = 'none' | 'moderate' | 'severe';
  * AI-based safety classification. Returns severity only - never stores or logs message content.
  * Use this instead of keyword lists to detect mental health crisis, self-harm, or suicidal ideation.
  */
-export async function classifySafetyRisk(message: string): Promise<SafetySeverity> {
+export async function classifySafetyRisk(message: string, userId?: string): Promise<SafetySeverity> {
 	try {
 		const ai = getAiClient();
 
@@ -415,26 +454,34 @@ Beispiele (nur zur Orientierung, nicht exhaustive):
 Antworte AUSSCHLIESSLICH mit einem JSON-Objekt, sonst nichts:
 {"severity":"none"|"moderate"|"severe"}`;
 
-		// @ts-ignore
-		const model = ai.chats.create({
+		const requestOptions: any = {
 			model: 'gemini-2.5-flash',
 			config: {
 				temperature: 0.1,
 				systemInstruction: systemPrompt
-			}
-		});
+			},
+			contents: [{ role: 'user', parts: [{ text: `Nachricht zur Bewertung:\n${message}` }] }]
+		};
+
+		if (getPosthogClient()) {
+			requestOptions.posthogProperties = {
+				context: 'safety_check'
+			};
+			if (userId) requestOptions.posthogDistinctId = userId;
+		}
 
 		// @ts-ignore
-		const result = await model.sendMessage({ 
-			message: `Nachricht zur Bewertung:\n${message}`,
-			posthogProperties: {
-				context: 'safety_check'
-			}
-		});
+		const result = await ai.models.generateContent(requestOptions);
 		
 		// Track token usage
+		let usage: any;
 		if ((result as any).response?.usageMetadata) {
-			const usage = (result as any).response.usageMetadata;
+			usage = (result as any).response.usageMetadata;
+		} else if ((result as any).usageMetadata) {
+			usage = (result as any).usageMetadata;
+		}
+
+		if (usage) {
 			await trackTokenUsage({
 				context: 'safety_check',
 				model: 'gemini-2.5-flash',

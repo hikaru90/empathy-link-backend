@@ -793,7 +793,7 @@ Respond ONLY with a JSON object in the format:
 		required: ['title', 'tags', 'summary', 'usedConcepts']
 	};
 
-	const chat = ai.chats.create({
+	const result = await ai.models.generateContent({
 		model: modelName,
 		config: {
 			temperature: 0.3,
@@ -801,16 +801,13 @@ Respond ONLY with a JSON object in the format:
 			systemInstruction,
 			responseMimeType: 'application/json',
 			responseSchema
+		},
+		contents: [{ role: 'user', parts: [{ text: `Lerninhalt:\n\n${rawContent.substring(0, 15000)}` }] }],
+		posthogProperties: {
+			context: 'learn_metadata_extraction',
+			language
 		}
 	});
-
-		const result = await chat.sendMessage({ 
-			message: `Lerninhalt:\n\n${rawContent.substring(0, 15000)}`,
-			posthogProperties: {
-				context: 'learn_metadata_extraction',
-				language
-			}
-		});
 		
 		// Track token usage
 	if ((result as any).response?.usageMetadata) {

@@ -165,9 +165,9 @@ export const TOOL_REGISTRY: Record<string, ToolDefinition> = {
 			},
 			required: ['message', 'currentPath', 'recentHistory']
 		},
-		execute: async (params: { message: string; currentPath: string; recentHistory: Array<{ role: string; content: string }> }, context: { locale?: string }) => {
+		execute: async (params: { message: string; currentPath: string; recentHistory: Array<{ role: string; content: string }> }, context: { locale?: string; userId?: string }) => {
 			const locale = context.locale || 'de';
-			return await analyzePathSwitchingIntent(params.message, params.currentPath, params.recentHistory, locale);
+			return await analyzePathSwitchingIntent(params.message, params.currentPath, params.recentHistory, locale, context.userId);
 		},
 		isIndependent: true
 	}

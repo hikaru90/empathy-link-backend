@@ -289,7 +289,8 @@ bullshift.post('/send', async (c: Context) => {
 						message,
 						activePath,
 						preliminaryMessages,
-						'de'
+						'de',
+						user.id
 					);
 				}
 			} else {
@@ -299,7 +300,8 @@ bullshift.post('/send', async (c: Context) => {
 					message,
 					activePath,
 					preliminaryMessages,
-					'de'
+					'de',
+					user.id
 				);
 			}
 
@@ -753,7 +755,9 @@ bullshift.post('/send', async (c: Context) => {
 				message,
 				historyWithUserMessage,
 				systemInstruction,
-				3 // max retries
+				3, // max retries
+				user.id,
+				chatId
 			);
 		} catch (aiError) {
 			console.error('AI response error:', aiError);

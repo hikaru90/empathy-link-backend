@@ -3,7 +3,7 @@ import type { Context } from 'hono';
 import { drizzle } from 'drizzle-orm/node-postgres';
 import { eq, desc } from 'drizzle-orm';
 import { emailTemplates, emailTemplateVersions } from '../../drizzle/schema.js';
-import { getAiClient } from '../lib/gemini.js';
+import { getAiClient, isPostHogEnabled } from '../lib/gemini.js';
 
 const db = drizzle(process.env.DATABASE_URL!);
 const emailTemplatesRouter = new Hono();
@@ -273,16 +273,17 @@ emailTemplatesRouter.post('/ai-edit', async (c: Context) => {
 
         const userMessage = `Current Content:\n${currentContent || '(New Template)'}\n\nUser Request: ${userPrompt}\n\nReturn ONLY the updated HTML.`;
 
-        const chat = aiClient.chats.create({
+        const emailGenRequest: any = {
             model: 'gemini-2.5-flash',
             config: {
                 systemInstruction: systemPrompt,
                 temperature: 0.7,
                 maxOutputTokens: 8192,
-            }
-        });
-
-        const result = await chat.sendMessage({ message: userMessage });
+            },
+            contents: [{ role: 'user', parts: [{ text: userMessage }] }]
+        };
+        if (isPostHogEnabled()) emailGenRequest.posthogDistinctId = user.id;
+        const result = await aiClient.models.generateContent(emailGenRequest);
         let response = result.text;
 
         if (!response && result.candidates && result.candidates.length > 0) {

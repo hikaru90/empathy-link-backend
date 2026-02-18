@@ -189,7 +189,7 @@ export async function extractNVCFromMessage(
 Analysiere diese Nachricht und extrahiere nur die NVC-Komponenten, die der Nutzer EXPLIZIT genannt hat.`;
 
 		// Use low-cost gemini-2.5-flash model
-		const chat_session = ai.chats.create({
+		const result = await ai.models.generateContent({
 			model: 'gemini-2.5-flash-lite',
 			config: {
 				temperature: 0.2, // Lower temperature for more consistent extraction
@@ -197,11 +197,8 @@ Analysiere diese Nachricht und extrahiere nur die NVC-Komponenten, die der Nutze
 				responseMimeType: 'application/json',
 				responseSchema,
 				systemInstruction
-			}
-		});
-
-		const result = await chat_session.sendMessage({
-			message: `Analysiere diese Nachricht und extrahiere NVC-Komponenten:\n\n"${message}"`
+			},
+			contents: [{ role: 'user', parts: [{ text: `Analysiere diese Nachricht und extrahiere NVC-Komponenten:\n\n"${message}"` }] }]
 		});
 
 		// Parse response
@@ -412,6 +409,7 @@ Analysiere das folgende Gespräch und extrahiere:
 - Titel der Sitzung (title): Kurze Zusammenfassung
 
 WICHTIG - Nur explizit genannte Elemente extrahieren:
+- Du redest direkt mit dem Nutzer. Verwende also keine ausdrücke wie "der Nutzer" oder "die Person". Verwende "du" oder "dich" oder "dir" statt "der Nutzer" oder "die Person".
 - Beobachtung (observation): NUR extrahieren, wenn der Nutzer explizit eine Beobachtung formuliert hat (z.B. "Ich beobachte, dass...", "Was passiert ist..."). Falls keine explizite Beobachtung genannt wurde, lasse dieses Feld LEER.
 - Gefühle (feelings): NUR Gefühlswörter extrahieren, die der Nutzer EXPLIZIT verwendet oder benannt hat (aus dieser Liste: ${feelingsList}). Errate oder schließe KEINE Gefühle ab, die nicht direkt im Text genannt wurden. Falls keine Gefühle explizit genannt wurden, gib ein LEERES Array zurück.
 - Bedürfnisse (needs): NUR Bedürfnisse extrahieren, die der Nutzer EXPLIZIT genannt hat (aus dieser Liste: ${needsList}). Errate oder schließe KEINE Bedürfnisse ab, die nicht direkt im Text erwähnt wurden. Falls keine Bedürfnisse explizit genannt wurden, gib ein LEERES Array zurück.
@@ -424,7 +422,7 @@ Analysiere in deutscher Sprache und gib die Werte als JSON zurück.`;
 		// 7. Send to Gemini with structured output
 		console.log('📤 Sending analysis request to Gemini...');
 
-		const chat_session = ai.chats.create({
+		const result = await ai.models.generateContent({
 			model: 'gemini-2.5-flash',
 			config: {
 				temperature: 0.3,
@@ -432,11 +430,9 @@ Analysiere in deutscher Sprache und gib die Werte als JSON zurück.`;
 				responseMimeType: 'application/json',
 				responseSchema,
 				systemInstruction
-			}
-		});
-
-		const result = await chat_session.sendMessage({
-			message: `Bitte analysiere dieses Gespräch:\n\n${filteredHistory}`
+			},
+			contents: [{ role: 'user', parts: [{ text: `Bitte analysiere dieses Gespräch:\n\n${filteredHistory}` }] }],
+			posthogDistinctId: userId
 		});
 
 		// 8. Parse response
@@ -451,32 +447,40 @@ Analysiere in deutscher Sprache und gib die Werte als JSON zurück.`;
 			throw new Error('Failed to parse AI analysis response');
 		}
 
-		// Validate feelings and needs against database using flexible matching
-		if (Array.isArray(analysisData.feelings)) {
-			const validFeelings: string[] = [];
-			for (const feeling of analysisData.feelings) {
-				const matchedFeeling = findFlexibleMatch(feeling, feelingsRecords);
-				if (matchedFeeling) {
-					validFeelings.push(matchedFeeling.nameDE);
-				} else {
-					console.warn(`⚠️ Invalid feeling in analysis: "${feeling}" - not in database`);
-				}
-			}
-			analysisData.feelings = validFeelings;
+		// Normalize feelings/needs to arrays (model may return null or omit)
+		if (!Array.isArray(analysisData.feelings)) {
+			analysisData.feelings = [];
+		}
+		if (!Array.isArray(analysisData.needs)) {
+			analysisData.needs = [];
 		}
 
-		if (Array.isArray(analysisData.needs)) {
-			const validNeeds: string[] = [];
-			for (const need of analysisData.needs) {
-				const matchedNeed = findFlexibleMatch(need, needsRecords);
-				if (matchedNeed) {
-					validNeeds.push(matchedNeed.nameDE);
-				} else {
-					console.warn(`⚠️ Invalid need in analysis: "${need}" - not in database`);
-				}
+		// Validate feelings and needs against database using flexible matching
+		const validFeelings: string[] = [];
+		for (const feeling of analysisData.feelings) {
+			const matchedFeeling = findFlexibleMatch(feeling, feelingsRecords);
+			if (matchedFeeling) {
+				validFeelings.push(matchedFeeling.nameDE);
+			} else {
+				console.warn(`⚠️ Invalid feeling in analysis: "${feeling}" - not in database`);
 			}
-			analysisData.needs = validNeeds;
 		}
+		analysisData.feelings = validFeelings;
+
+		const validNeeds: string[] = [];
+		for (const need of analysisData.needs) {
+			const matchedNeed = findFlexibleMatch(need, needsRecords);
+			if (matchedNeed) {
+				validNeeds.push(matchedNeed.nameDE);
+			} else {
+				console.warn(`⚠️ Invalid need in analysis: "${need}" - not in database`);
+			}
+		}
+		analysisData.needs = validNeeds;
+
+		// Normalize empty observation/request to null for consistent storage
+		const observation = analysisData.observation?.trim() || null;
+		const request = analysisData.request?.trim() || null;
 
 		console.log('✅ Analysis complete:', analysisData.title);
 
@@ -488,10 +492,10 @@ Analysiere in deutscher Sprache und gib die Werte als JSON zurück.`;
 				userId,
 				chatId,
 				title: analysisData.title,
-				observation: analysisData.observation,
+				observation,
 				feelings: JSON.stringify(analysisData.feelings),
 				needs: JSON.stringify(analysisData.needs),
-				request: analysisData.request,
+				request,
 				emotionalShift: analysisData.emotionalShift,
 				iStatementMuscle: analysisData.iStatementMuscle,
 				clarityOfAsk: analysisData.clarityOfAsk,
@@ -553,7 +557,7 @@ Wähle die Nummer des Zitats, das am besten zu dieser Person und ihrer Situation
 
 			console.log('📤 Sending quote selection request to Gemini');
 
-			const chat = ai.chats.create({
+			const result = await ai.models.generateContent({
 				model: 'gemini-2.5-flash',
 				config: {
 					temperature: 0.7, // Higher temperature for more variety in selection
@@ -570,10 +574,10 @@ Wähle die Nummer des Zitats, das am besten zu dieser Person und ihrer Situation
 						},
 						required: ['quoteIndex']
 					}
-				}
+				},
+				contents: [{ role: 'user', parts: [{ text: quotePrompt }] }],
+				posthogDistinctId: userId
 			});
-
-			const result = await chat.sendMessage({ message: quotePrompt });
 
 			console.log('📥 Full AI response object:', JSON.stringify(result, null, 2));
 			console.log('📥 Raw AI response text:', result.text);
@@ -947,7 +951,7 @@ ${quotesList}
 
 Wähle die Nummer des Zitats, das am besten zu dieser Person und ihrer Situation passt.`;
 
-		const chat = ai.chats.create({
+		const result = await ai.models.generateContent({
 			model: modelName,
 			config: {
 				temperature: 0.7, // Higher temperature for more variety in selection
@@ -964,12 +968,8 @@ Wähle die Nummer des Zitats, das am besten zu dieser Person und ihrer Situation
 					},
 					required: ['quoteIndex']
 				}
-			}
-		});
-
-		const result = await chat.sendMessage({ 
-			message: contextPrompt,
-			// @ts-ignore
+			},
+			contents: [{ role: 'user', parts: [{ text: contextPrompt }] }],
 			posthogDistinctId: userId,
 			posthogProperties: {
 				context: 'inspirational_quote'
@@ -1264,17 +1264,6 @@ For each memory:
 		// 5. Send to Gemini for memory extraction
 		console.log('📤 Sending memory extraction request to Gemini...');
 
-		const chat_session = ai.chats.create({
-			model: 'gemini-2.5-flash-lite',
-			config: {
-				temperature: 0.3,
-				maxOutputTokens: 8192,
-				responseMimeType: 'application/json',
-				responseSchema: memorySchema,
-				systemInstruction
-			}
-		});
-
 		const message = `
 The chat history is:
 ${concatenatedHistory}
@@ -1283,7 +1272,18 @@ ${concatenatedHistory}
 		console.log('📋 FULL CHAT HISTORY BEING ANALYZED:');
 		console.log(concatenatedHistory);
 
-		const result = await chat_session.sendMessage({ message });
+		const result = await ai.models.generateContent({
+			model: 'gemini-2.5-flash-lite',
+			config: {
+				temperature: 0.3,
+				maxOutputTokens: 8192,
+				responseMimeType: 'application/json',
+				responseSchema: memorySchema,
+				systemInstruction
+			},
+			contents: [{ role: 'user', parts: [{ text: message }] }],
+			posthogDistinctId: userId
+		});
 
 		// 6. Parse response
 		let extractedMemories: MemoryExtraction[];
@@ -1470,7 +1470,7 @@ Respond with a JSON object in the format:
 			required: ['searchQuery', 'extractedConcepts']
 		};
 
-		const chat_session = ai.chats.create({
+		const conceptResult = await ai.models.generateContent({
 			model: 'gemini-2.5-flash-lite',
 			config: {
 				temperature: 0.3,
@@ -1478,13 +1478,8 @@ Respond with a JSON object in the format:
 				responseMimeType: 'application/json',
 				responseSchema: conceptExtractionSchema,
 				systemInstruction
-			}
-		});
-
-		const conceptResult = await chat_session.sendMessage({
-			message: isGerman
-				? `Analysiere diese Nachricht und extrahiere GFK-relevante Konzepte:\n\n"${message}"`
-				: `Analyze this message and extract NVC-relevant concepts:\n\n"${message}"`
+			},
+			contents: [{ role: 'user', parts: [{ text: isGerman ? `Analysiere diese Nachricht und extrahiere GFK-relevante Konzepte:\n\n"${message}"` : `Analyze this message and extract NVC-relevant concepts:\n\n"${message}"` }] }]
 		});
 
 		// Parse concept extraction result

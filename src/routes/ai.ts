@@ -196,24 +196,18 @@ ai.post('/learn/askQuestion', async (c: Context) => {
 
 		const ai = getAiClient();
 		const modelName = 'gemini-2.5-flash';
-		const chat = ai.chats.create({
+		const prompt = `Question: ${question}\n\nUser's Answer: ${userAnswer}`;
+
+		const result = await ai.models.generateContent({
 			model: modelName,
 			config: {
 				systemInstruction: systemPrompt,
 				temperature: 0.7,
 				maxOutputTokens: 4000,
-			}
-		});
-
-		const prompt = `Question: ${question}\n\nUser's Answer: ${userAnswer}`;
-		
-		// @ts-ignore
-		const result = await chat.sendMessage({ 
-			message: prompt,
+			},
+			contents: [{ role: 'user', parts: [{ text: prompt }] }],
 			posthogDistinctId: user.id,
-			posthogProperties: {
-				context: 'learn_question'
-			}
+			posthogProperties: { context: 'learn_question' }
 		});
 		const response = result.text;
 
@@ -316,23 +310,18 @@ Erstelle eine einfühlsame Zusammenfassung dieser Selbstreflexion, die der Perso
 
 		const aiClient = getAiClient();
 		const modelName = 'gemini-2.5-flash';
-		const chat = aiClient.chats.create({
+
+		console.log('Sending message to Gemini:', prompt.substring(0, 100) + '...');
+		const result = await aiClient.models.generateContent({
 			model: modelName,
 			config: {
 				systemInstruction: systemPrompt,
 				temperature: 0.7,
 				maxOutputTokens: 8192,
-			}
-		});
-
-		console.log('Sending message to Gemini:', prompt.substring(0, 100) + '...');
-		// @ts-ignore
-		const result = await chat.sendMessage({ 
-			message: prompt,
+			},
+			contents: [{ role: 'user', parts: [{ text: prompt }] }],
 			posthogDistinctId: user.id,
-			posthogProperties: {
-				context: 'feelings_detective'
-			}
+			posthogProperties: { context: 'feelings_detective' }
 		});
 		console.log('Gemini result:', result);
 
@@ -453,23 +442,18 @@ Erstelle eine einfühlsame Zusammenfassung dieser Selbstreflexion, die der Perso
 		}
 
 		const aiClient = getAiClient();
-		const chat = aiClient.chats.create({
+
+		console.log('NeedsDetective: Sending message to Gemini:', prompt.substring(0, 100) + '...');
+		const result = await aiClient.models.generateContent({
 			model: 'gemini-2.5-flash',
 			config: {
 				systemInstruction: systemPrompt,
 				temperature: 0.7,
 				maxOutputTokens: 8192,
 			},
-		});
-
-		console.log('NeedsDetective: Sending message to Gemini:', prompt.substring(0, 100) + '...');
-		// @ts-ignore
-		const result = await chat.sendMessage({ 
-			message: prompt,
+			contents: [{ role: 'user', parts: [{ text: prompt }] }],
 			posthogDistinctId: user.id,
-			posthogProperties: {
-				context: 'needs_detective'
-			}
+			posthogProperties: { context: 'needs_detective' }
 		});
 
 		let response = result.text;
@@ -523,22 +507,16 @@ Antworte ausschließlich mit dem JSON-Array, keine zusätzlichen Erklärungen.`;
 		const prompt = `${inst}\n\nSatz: ${sentence.trim()}`;
 
 		const aiClient = getAiClient();
-		const chat = aiClient.chats.create({
+		const result = await aiClient.models.generateContent({
 			model: 'gemini-2.5-flash',
 			config: {
 				systemInstruction: systemPrompt,
 				temperature: 0.5,
 				maxOutputTokens: 1024,
 			},
-		});
-
-		// @ts-ignore
-		const result = await chat.sendMessage({ 
-			message: prompt,
+			contents: [{ role: 'user', parts: [{ text: prompt }] }],
 			posthogDistinctId: user.id,
-			posthogProperties: {
-				context: 'needs_rubiks_cube'
-			}
+			posthogProperties: { context: 'needs_rubiks_cube' }
 		});
 		let response = result.text;
 

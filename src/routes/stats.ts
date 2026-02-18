@@ -3,7 +3,7 @@ import type { Context } from 'hono';
 import { drizzle } from 'drizzle-orm/node-postgres';
 import { eq, desc, and, gte, lte, or, sql } from 'drizzle-orm';
 import { analyses, memories, user as userTable, trackedNeeds, needFillLevels, needs, blindSpots, chats } from '../../drizzle/schema.js';
-import { getAiClient } from '../lib/gemini.js';
+import { getAiClient, isPostHogEnabled } from '../lib/gemini.js';
 
 const db = drizzle(process.env.DATABASE_URL!);
 const stats = new Hono();
@@ -1394,15 +1394,16 @@ WICHTIG: Vermeide diese bereits gegebenen Muster und Ratschläge. Finde NEUE Erk
 Identifiziere wiederkehrende Muster, Blind Spots und gib hilfreiche Ratschläge für ${userFirstName}.
 Sprich ${userFirstName} DIREKT an - sage NIEMALS "der Nutzer" oder ähnliches!`;
 
-		const model = ai.chats.create({
+		const blindSpotRequest: any = {
 			model: 'gemini-2.5-flash',
 			config: {
 				temperature: 0.7,
 				systemInstruction: systemPrompt
-			}
-		});
-
-		const result = await model.sendMessage({ message: contextMessage });
+			},
+			contents: [{ role: 'user', parts: [{ text: contextMessage }] }]
+		};
+		if (isPostHogEnabled()) blindSpotRequest.posthogDistinctId = user.id;
+		const result = await ai.models.generateContent(blindSpotRequest);
 		const responseText = result.text || '{}';
 
 		// Clean the response text
@@ -1645,15 +1646,16 @@ WICHTIG: Vermeide diese bereits gegebenen Muster und Ratschläge. Finde NEUE Erk
 Identifiziere wiederkehrende Muster, Blind Spots und gib hilfreiche Ratschläge für ${userFirstName}.
 Sprich ${userFirstName} DIREKT an - sage NIEMALS "der Nutzer" oder ähnliches!`;
 
-		const model = ai.chats.create({
+		const forceBlindSpotRequest: any = {
 			model: 'gemini-2.5-flash',
 			config: {
 				temperature: 0.7,
 				systemInstruction: systemPrompt
-			}
-		});
-
-		const result = await model.sendMessage({ message: contextMessage });
+			},
+			contents: [{ role: 'user', parts: [{ text: contextMessage }] }]
+		};
+		if (isPostHogEnabled()) forceBlindSpotRequest.posthogDistinctId = user.id;
+		const result = await ai.models.generateContent(forceBlindSpotRequest);
 		const responseText = result.text || '{}';
 
 		// Clean the response text
