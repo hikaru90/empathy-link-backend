@@ -134,6 +134,20 @@
       "when": 1771167500372,
       "tag": "0018_clean_morg",
       "breakpoints": true
+    },
+    {
+      "idx": 19,
+      "version": "7",
+      "when": 1771167600000,
+      "tag": "0022_token_limit_by_role",
+      "breakpoints": true
+    },
+    {
+      "idx": 20,
+      "version": "7",
+      "when": 1771167700000,
+      "tag": "0023_role_settings_rename",
+      "breakpoints": true
     }
   ]
 }

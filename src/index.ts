@@ -159,7 +159,13 @@ app.on(["POST", "GET", "OPTIONS"], "/api/auth/*", async (c) => {
 	try {
 		const req = c.req.raw;
 		const url = new URL(req.url);
-		console.log(`[Backend Auth Debug] Incoming ${req.method} ${url.pathname}${url.search}`);
+		const origin = req.headers.get('origin');
+		const cookie = req.headers.get('cookie');
+		console.log(`[Auth Debug] Incoming ${req.method} ${url.pathname}${url.search}`, {
+			origin: origin ?? '(none)',
+			hasCookie: !!cookie,
+			cookieLength: cookie?.length ?? 0,
+		});
 		
 		// better-call requires a JSON body for POST; sign-out sends empty body by default
 		let finalReq = req;
@@ -173,6 +179,8 @@ app.on(["POST", "GET", "OPTIONS"], "/api/auth/*", async (c) => {
 		}
 		
 		const response = await auth.handler(finalReq);
+
+		console.log(`[Auth Debug] Response ${url.pathname}`, { status: response?.status, statusText: response?.statusText });
 
 		if (url.pathname.includes('/verify-email')) {
 			console.log('[Backend Auth Debug] verify-email response status:', response?.status);
@@ -290,6 +298,22 @@ app.on(["POST", "GET", "OPTIONS"], "/api/auth/*", async (c) => {
 // Auth middleware - add user to context
 app.use('/api/*', async (c: Context<Env>, next) => {
   const session = await auth.api.getSession({ headers: c.req.raw.headers });
+  const hasSession = !!session;
+  console.log('[Auth Debug] getSession', {
+    path: c.req.path,
+    hasSession,
+    userId: session?.user?.id,
+    role: session?.user?.role,
+  });
+  if (!hasSession && !c.req.path.startsWith('/api/auth/')) {
+    const cookie = c.req.raw.headers.get('cookie');
+    const authHeader = c.req.raw.headers.get('authorization');
+    const origin = c.req.raw.headers.get('origin') ?? '';
+    const isLikelyTunnel = /^http:\/\/localhost:\d+$/.test(origin) && (!cookie || cookie.length === 0);
+    if (isLikelyTunnel && !/^Bearer\s+/i.test(authHeader ?? '')) {
+      console.warn('[Auth Debug] No session and no cookies/Bearer with Origin localhost — when the backend is behind a tunnel, use the Bearer token: after sign-in read set-auth-token from response headers, then send Authorization: Bearer <token> on API requests.');
+    }
+  }
   if (session) {
     c.set('user', session.user);
   }

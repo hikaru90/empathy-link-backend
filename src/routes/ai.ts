@@ -176,13 +176,23 @@ ai.post('/update-prompt-scores', async (c: Context) => {
 	}
 });
 
-import { trackTokenUsage } from '../lib/token-usage.js';
+import { trackTokenUsage, canUseTokens } from '../lib/token-usage.js';
 
 // POST /api/ai/learn/askQuestion - Ask AI a question based on user's answer
 ai.post('/learn/askQuestion', async (c: Context) => {
 	const user = c.get('user');
 	if (!user) {
 		return c.json({ error: 'Unauthorized' }, 401);
+	}
+
+	const tokenCheck = await canUseTokens(user.id, user.role ?? 'user');
+	if (!tokenCheck.allowed) {
+		return c.json({
+			error: 'daily_token_limit_exceeded',
+			message: 'You have reached your daily token limit. It resets at midnight UTC.',
+			usedToday: tokenCheck.usedToday,
+			limit: tokenCheck.limit,
+		}, 429);
 	}
 
 	try {
@@ -239,6 +249,16 @@ ai.post('/learn/feelingsDetective', async (c: Context) => {
 	const user = c.get('user');
 	if (!user) {
 		return c.json({ error: 'Unauthorized' }, 401);
+	}
+
+	const tokenCheck = await canUseTokens(user.id, user.role ?? 'user');
+	if (!tokenCheck.allowed) {
+		return c.json({
+			error: 'daily_token_limit_exceeded',
+			message: 'You have reached your daily token limit. It resets at midnight UTC.',
+			usedToday: tokenCheck.usedToday,
+			limit: tokenCheck.limit,
+		}, 429);
 	}
 
 	try {
@@ -381,6 +401,16 @@ ai.post('/learn/needsDetective', async (c: Context) => {
 		return c.json({ error: 'Unauthorized' }, 401);
 	}
 
+	const tokenCheck = await canUseTokens(user.id, user.role ?? 'user');
+	if (!tokenCheck.allowed) {
+		return c.json({
+			error: 'daily_token_limit_exceeded',
+			message: 'You have reached your daily token limit. It resets at midnight UTC.',
+			usedToday: tokenCheck.usedToday,
+			limit: tokenCheck.limit,
+		}, 429);
+	}
+
 	try {
 		const body = await c.req.json();
 		const { step, situation, thoughts, needs } = body;
@@ -488,6 +518,16 @@ ai.post('/learn/needsRubiksCube', async (c: Context) => {
 	const user = c.get('user');
 	if (!user) {
 		return c.json({ error: 'Unauthorized' }, 401);
+	}
+
+	const tokenCheck = await canUseTokens(user.id, user.role ?? 'user');
+	if (!tokenCheck.allowed) {
+		return c.json({
+			error: 'daily_token_limit_exceeded',
+			message: 'You have reached your daily token limit. It resets at midnight UTC.',
+			usedToday: tokenCheck.usedToday,
+			limit: tokenCheck.limit,
+		}, 429);
 	}
 
 	try {

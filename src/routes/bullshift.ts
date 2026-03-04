@@ -11,6 +11,7 @@ import { analyzeChat, extractMemories } from '../lib/ai-tools.js';
 import { formatMemoriesForPrompt } from '../lib/memory.js';
 import { getToolCalls, executeTools, formatToolResults } from '../lib/tool-caller.js';
 import { getLearnPath } from '../lib/nvc-knowledge.js';
+import { canUseTokens } from '../lib/token-usage.js';
 
 const db = drizzle(process.env.DATABASE_URL!);
 const bullshift = new Hono();
@@ -207,6 +208,17 @@ bullshift.post('/send', async (c: Context) => {
 
 		if (!chatId || !message) {
 			return c.json({ error: 'chatId and message are required' }, 400);
+		}
+
+		// Daily token limit check (role-based)
+		const tokenCheck = await canUseTokens(user.id, user.role ?? 'user');
+		if (!tokenCheck.allowed) {
+			return c.json({
+				error: 'daily_token_limit_exceeded',
+				message: 'You have reached your daily token limit. It resets at midnight UTC.',
+				usedToday: tokenCheck.usedToday,
+				limit: tokenCheck.limit,
+			}, 429);
 		}
 
 		// Safety: run detection (never stores content)

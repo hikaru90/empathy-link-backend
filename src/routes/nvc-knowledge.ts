@@ -16,6 +16,7 @@ import {
 	type SearchOptions
 } from '../lib/nvc-knowledge.js';
 import { retrieveNVCKnowledge } from '../lib/ai-tools.js';
+import { canUseTokens } from '../lib/token-usage.js';
 
 const nvcKnowledge = new Hono();
 
@@ -275,6 +276,16 @@ nvcKnowledge.post('/retrieve-from-message', async (c: Context) => {
 	const user = c.get('user');
 	if (!user) {
 		return c.json({ error: 'Unauthorized' }, 401);
+	}
+
+	const tokenCheck = await canUseTokens(user.id, user.role ?? 'user');
+	if (!tokenCheck.allowed) {
+		return c.json({
+			error: 'daily_token_limit_exceeded',
+			message: 'You have reached your daily token limit. It resets at midnight UTC.',
+			usedToday: tokenCheck.usedToday,
+			limit: tokenCheck.limit,
+		}, 429);
 	}
 
 	try {

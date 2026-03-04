@@ -4,6 +4,7 @@ import { drizzle } from 'drizzle-orm/node-postgres';
 import { eq, desc, and, gte, lte, or, sql } from 'drizzle-orm';
 import { analyses, memories, user as userTable, trackedNeeds, needFillLevels, needs, blindSpots, chats } from '../../drizzle/schema.js';
 import { getAiClient, isPostHogEnabled } from '../lib/gemini.js';
+import { canUseTokens } from '../lib/token-usage.js';
 
 const db = drizzle(process.env.DATABASE_URL!);
 const stats = new Hono();
@@ -1454,6 +1455,16 @@ stats.post('/blind-spots/generate', async (c: Context) => {
 	const user = c.get('user');
 	if (!user) {
 		return c.json({ error: 'Unauthorized' }, 401);
+	}
+
+	const tokenCheck = await canUseTokens(user.id, user.role ?? 'user');
+	if (!tokenCheck.allowed) {
+		return c.json({
+			error: 'daily_token_limit_exceeded',
+			message: 'You have reached your daily token limit. It resets at midnight UTC.',
+			usedToday: tokenCheck.usedToday,
+			limit: tokenCheck.limit,
+		}, 429);
 	}
 
 	try {

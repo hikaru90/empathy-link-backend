@@ -1,6 +1,7 @@
 import * as brevo from '@getbrevo/brevo';
 import { betterAuth } from "better-auth";
 import { drizzleAdapter } from "better-auth/adapters/drizzle";
+import { bearer } from "better-auth/plugins/bearer";
 import { eq } from "drizzle-orm";
 import 'dotenv/config';
 import type { Context } from 'hono';
@@ -185,6 +186,7 @@ const backendUrl = (process.env.BETTER_AUTH_URL || process.env.BACKEND_URL || 'h
 export const auth = betterAuth({
   baseURL: backendUrl,
   basePath: '/api/auth',
+  plugins: [bearer()],
   database: drizzleAdapter(db, {
     provider: "pg",
     schema,
@@ -223,20 +225,41 @@ export const auth = betterAuth({
       'http://localhost:8081',
       'https://expo.clustercluster.de', // Production frontend
       'https://appleid.apple.com', // Required for Sign in with Apple
+      'empathy-link://',
+      'https://macbook-air.taild0bc12.ts.net'
     ];
-    
-    // In development, dynamically allow localhost and local network IPs on any port
+
+    console.log('[Auth Debug] trustedOrigins called', {
+      origin: origin ?? '(no origin header)',
+      method: request.method,
+      url: request.url,
+    });
+
+    // In development, dynamically allow localhost, LAN IPs, and Tailscale tunnel frontend origins.
+    // When only the backend is behind a tunnel (app on localhost, API on tunnel URL), use the
+    // Bearer plugin: sign-in returns set-auth-token header; send Authorization: Bearer <token> on API calls.
     if (process.env.NODE_ENV !== 'production' && origin) {
       // Allow localhost on any port
       if (/^http:\/\/localhost:\d+$/.test(origin)) {
-        return [...staticOrigins, origin];
+        const allowed = [...staticOrigins, origin];
+        console.log('[Auth Debug] trustedOrigins result: static + dynamic localhost', { allowed });
+        return allowed;
       }
       // Allow any local network IP (192.168.x.x) on any port
       if (/^http:\/\/192\.168\.\d+\.\d+:\d+$/.test(origin)) {
-        return [...staticOrigins, origin];
+        const allowed = [...staticOrigins, origin];
+        console.log('[Auth Debug] trustedOrigins result: static + dynamic LAN', { allowed });
+        return allowed;
+      }
+      // Allow Tailscale tunnel origins (e.g. http://macbook-air.taild0bc12.ts.net:8081)
+      if (/^https?:\/\/[^/]+\.ts\.net(:\d+)?$/.test(origin)) {
+        const allowed = [...staticOrigins, origin];
+        console.log('[Auth Debug] trustedOrigins result: static + Tailscale', { allowed });
+        return allowed;
       }
     }
-    
+
+    console.log('[Auth Debug] trustedOrigins result: static only', { staticOrigins });
     // Return static origins for production or if origin doesn't match patterns
     return staticOrigins;
   },
@@ -262,6 +285,12 @@ export const auth = betterAuth({
 
 export const ensureAdmin = (c: Context) => {
   const user = c.get('user');
+  console.log('[Auth Debug] ensureAdmin', {
+    hasUser: !!user,
+    userId: user?.id,
+    role: user?.role,
+    allowed: !!(user && user.role === 'admin'),
+  });
   if (!user || user.role !== 'admin') {
     return c.json({ error: 'Unauthorized' }, 401);
   }

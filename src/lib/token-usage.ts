@@ -1,6 +1,7 @@
 import { db } from './db.js';
-import { tokenUsage } from '../../drizzle/schema.js';
+import { tokenUsage, roleSettings } from '../../drizzle/schema.js';
 import { type InferInsertModel } from 'drizzle-orm';
+import { and, eq, sum, gte } from 'drizzle-orm';
 
 // Pricing per 1M tokens (as of Feb 2025, adjust as needed)
 // Using Gemini 1.5 Flash pricing as baseline if not specified
@@ -52,4 +53,47 @@ export async function trackTokenUsage(data: {
 		// Don't fail the request if tracking fails, just log it
 		console.error('Failed to track token usage:', error);
 	}
+}
+
+/** Start of today in UTC (ISO string for DB comparison). */
+function startOfTodayUTC(): string {
+	const d = new Date();
+	d.setUTCHours(0, 0, 0, 0);
+	return d.toISOString();
+}
+
+/** Get daily token limit for a role from DB. Default 100000 if role not found. */
+export async function getTokenLimitForRole(role: string): Promise<number> {
+	const normalizedRole = (role || 'user').toLowerCase();
+	const row = await db
+		.select({ dailyTokenLimit: roleSettings.dailyTokenLimit })
+		.from(roleSettings)
+		.where(eq(roleSettings.role, normalizedRole))
+		.limit(1);
+	return row[0]?.dailyTokenLimit ?? 100_000;
+}
+
+/** Get total tokens used by user today (UTC). */
+export async function getUserTokenUsageToday(userId: string): Promise<number> {
+	const start = startOfTodayUTC();
+	const result = await db
+		.select({ total: sum(tokenUsage.totalTokens) })
+		.from(tokenUsage)
+		.where(and(eq(tokenUsage.userId, userId), gte(tokenUsage.created, start)));
+	const total = result[0]?.total;
+	return Number(total ?? 0);
+}
+
+/** Check if user can use more tokens today. Returns allowed, usedToday, and limit. */
+export async function canUseTokens(
+	userId: string,
+	role: string = 'user',
+	estimatedAdditional: number = 0
+): Promise<{ allowed: boolean; usedToday: number; limit: number }> {
+	const [usedToday, limit] = await Promise.all([
+		getUserTokenUsageToday(userId),
+		getTokenLimitForRole(role),
+	]);
+	const allowed = usedToday + estimatedAdditional <= limit;
+	return { allowed, usedToday, limit };
 }

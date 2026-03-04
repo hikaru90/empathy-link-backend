@@ -20,6 +20,12 @@ export const tokenUsage = pgTable("token_usage", {
 	index("token_usage_created_idx").using("btree", table.created.asc().nullsLast().op("timestamp_ops")),
 ]);
 
+/** Role-based settings (token limits, future: other per-role config). */
+export const roleSettings = pgTable("role_settings", {
+	role: text("role").primaryKey().notNull(),
+	dailyTokenLimit: integer("daily_token_limit").notNull(),
+	updatedAt: timestamp("updated_at", { mode: 'string' }).defaultNow().notNull(),
+});
 
 export const memories = pgTable("memories", {
 	id: uuid().defaultRandom().primaryKey().notNull(),

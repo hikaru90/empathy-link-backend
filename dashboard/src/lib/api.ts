@@ -30,10 +30,9 @@ async function fetchWithAuth<T>(url: string, options: FetchOptions = {}): Promis
 	if (!response.ok) {
 		let message = `HTTP ${response.status}`;
 		try {
-			const error = await response.json();
-			if (error?.error) {
-				message = error.error;
-			}
+			const body = await response.json() as { error?: string; detail?: string };
+			if (body?.detail) message = body.detail;
+			else if (body?.error) message = body.error;
 		} catch {
 			// ignore
 		}
@@ -148,13 +147,39 @@ export const safetyApi = {
 export const analyticsApi = {
 	get(days = 30) {
 		return fetchWithAuth<{
-			totalUsers: number;
-			totalChats: number;
-			loginsPerDay: { date: string; count: number }[];
-			chatsPerDay: { date: string; count: number }[];
 			days: number;
+			activeInPeriod: number;
+			activeInPrevPeriod: number;
+			activeUsersPerDay: { date: string; count: number }[];
+			newSignupsInPeriod: number;
+			signupsPerDay: { date: string; count: number }[];
+			chatsInPeriod: number;
+			chatsInPrevPeriod: number;
+			chatsPerDay: { date: string; count: number }[];
+			retentionPct: number;
+			retentionCount: number;
+			retentionDenom: number;
+			retentionPerDay: { date: string; count: number }[];
 		}>('/analytics', {
 			searchParams: { days }
+		});
+	},
+	getTokenUsageByUser(period = '30d') {
+		return fetchWithAuth<{
+			period: string;
+			byUser: {
+				userId: string;
+				name: string;
+				email: string;
+				role: string;
+				dailyTokenLimit: number;
+				usedToday: number;
+				totalTokens: number;
+				totalCost: number;
+				count: number;
+			}[];
+		}>('/analytics/token-usage/by-user', {
+			searchParams: { period }
 		});
 	}
 };

@@ -254,6 +254,9 @@ async function executeTool(toolCall: ToolCall, context: any): Promise<ToolResult
 	}
 }
 
+/** Max tool calls per user message to prevent runaway token cost (each tool can trigger AI). */
+const MAX_TOOL_CALLS_PER_MESSAGE = 8;
+
 /**
  * Execute multiple tools with parallel/sequential execution
  */
@@ -262,11 +265,19 @@ export async function executeTools(toolCalls: ToolCall[], context: any): Promise
 		return [];
 	}
 
-	console.log(`🚀 Executing ${toolCalls.length} tool(s)...`);
+	// Cap to prevent unbounded AI calls and token burn
+	const capped = toolCalls.length > MAX_TOOL_CALLS_PER_MESSAGE
+		? toolCalls.slice(0, MAX_TOOL_CALLS_PER_MESSAGE)
+		: toolCalls;
+	if (capped.length < toolCalls.length) {
+		console.warn(`⚠️ Capped tool calls from ${toolCalls.length} to ${MAX_TOOL_CALLS_PER_MESSAGE} (safety limit)`);
+	}
+
+	console.log(`🚀 Executing ${capped.length} tool(s)...`);
 
 	// Group tools by dependency
-	const independent = toolCalls.filter(t => isIndependentTool(t.tool));
-	const dependent = toolCalls.filter(t => !isIndependentTool(t.tool));
+	const independent = capped.filter(t => isIndependentTool(t.tool));
+	const dependent = capped.filter(t => !isIndependentTool(t.tool));
 
 	console.log(`📊 Independent tools: ${independent.length}, Dependent tools: ${dependent.length}`);
 
