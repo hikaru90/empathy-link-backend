@@ -63,7 +63,9 @@ analytics.get('/', async (c) => {
 			GROUP BY d::date
 			ORDER BY d::date
 		`);
-		const activePerDayRows = Array.isArray(activePerDayResult) ? activePerDayResult : (activePerDayResult as { rows?: { date: string; count: number }[] }).rows ?? [];
+		const activePerDayRows = Array.isArray(activePerDayResult)
+			? activePerDayResult
+			: ((activePerDayResult as unknown as { rows?: { date: string; count: number }[] }).rows ?? []);
 		const activeUsersPerDay = (activePerDayRows as { date: string; count: number }[]).map((r) => ({
 			date: r.date?.slice(0, 10) ?? '',
 			count: Number(r.count ?? 0)
@@ -84,7 +86,9 @@ analytics.get('/', async (c) => {
 			GROUP BY d::date
 			ORDER BY d::date
 		`);
-		const signupsPerDayRows = Array.isArray(signupsPerDayResult) ? signupsPerDayResult : (signupsPerDayResult as { rows?: { date: string; count: number }[] }).rows ?? [];
+		const signupsPerDayRows = Array.isArray(signupsPerDayResult)
+			? signupsPerDayResult
+			: ((signupsPerDayResult as unknown as { rows?: { date: string; count: number }[] }).rows ?? []);
 		const signupsPerDay = (signupsPerDayRows as { date: string; count: number }[]).map((r) => ({
 			date: r.date?.slice(0, 10) ?? '',
 			count: Number(r.count ?? 0)
@@ -112,7 +116,9 @@ analytics.get('/', async (c) => {
 			GROUP BY d::date
 			ORDER BY d::date
 		`);
-		const chatsPerDayRows = Array.isArray(chatsPerDayResult) ? chatsPerDayResult : (chatsPerDayResult as { rows?: { date: string; count: number }[] }).rows ?? [];
+		const chatsPerDayRows = Array.isArray(chatsPerDayResult)
+			? chatsPerDayResult
+			: ((chatsPerDayResult as unknown as { rows?: { date: string; count: number }[] }).rows ?? []);
 		const chatsPerDay = (chatsPerDayRows as { date: string; count: number }[]).map((r) => ({
 			date: r.date?.slice(0, 10) ?? '',
 			count: Number(r.count ?? 0)
@@ -163,7 +169,9 @@ analytics.get('/', async (c) => {
 			GROUP BY d::date
 			ORDER BY d::date
 		`);
-		const retentionPerDayRows = Array.isArray(retentionPerDayResult) ? retentionPerDayResult : (retentionPerDayResult as { rows?: { date: string; count: number }[] }).rows ?? [];
+		const retentionPerDayRows = Array.isArray(retentionPerDayResult)
+			? retentionPerDayResult
+			: ((retentionPerDayResult as unknown as { rows?: { date: string; count: number }[] }).rows ?? []);
 		const retentionPerDay = (retentionPerDayRows as { date: string; count: number }[]).map((r) => ({
 			date: r.date?.slice(0, 10) ?? '',
 			count: Number(r.count ?? 0)
