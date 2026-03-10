@@ -235,9 +235,9 @@ export const auth = betterAuth({
       url: request.url,
     });
 
-    // In development, dynamically allow localhost, LAN IPs, and Tailscale tunnel frontend origins.
+    // In development, dynamically allow localhost, LAN IPs, Android emulator, and Tailscale tunnel frontend origins.
     // When only the backend is behind a tunnel (app on localhost, API on tunnel URL), use the
-    // Bearer plugin: sign-in returns set-auth-token header; send Authorization: Bearer <token> on API calls.
+    // Bearer plugin: sign-in returns set-auth-token header; send Authorization: Bearer <token> on API requests.
     if (process.env.NODE_ENV !== 'production' && origin) {
       // Allow localhost on any port
       if (/^http:\/\/localhost:\d+$/.test(origin)) {
@@ -251,6 +251,12 @@ export const auth = betterAuth({
         console.log('[Auth Debug] trustedOrigins result: static + dynamic LAN', { allowed });
         return allowed;
       }
+      // Android emulator: 10.0.2.2 is the host machine from the emulator
+      if (/^https?:\/\/10\.0\.2\.2(:\d+)?$/.test(origin)) {
+        const allowed = [...staticOrigins, origin];
+        console.log('[Auth Debug] trustedOrigins result: static + Android emulator host', { allowed });
+        return allowed;
+      }
       // Allow Tailscale tunnel origins (e.g. http://macbook-air.taild0bc12.ts.net:8081)
       if (/^https?:\/\/[^/]+\.ts\.net(:\d+)?$/.test(origin)) {
         const allowed = [...staticOrigins, origin];
@@ -259,7 +265,7 @@ export const auth = betterAuth({
       }
     }
 
-    console.log('[Auth Debug] trustedOrigins result: static only', { staticOrigins });
+    console.log('[Auth Debug] trustedOrigins result: static only (origin not in allowlist — may cause 403)', { origin: origin ?? '(none)', staticOrigins });
     // Return static origins for production or if origin doesn't match patterns
     return staticOrigins;
   },

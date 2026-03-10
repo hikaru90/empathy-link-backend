@@ -41,12 +41,26 @@ app.use('/*', cors({
       'http://192.168.0.230:8081', // Local network access for mobile devices
       'https://expo.clustercluster.de', // Production frontend
     ];
-    if (!origin) return null;
+    if (!origin) {
+      console.log('[Auth Debug] CORS: no origin header');
+      return null;
+    }
     if (allowedOrigins.includes(origin)) return origin;
     // Check if origin matches localhost on any port
     if (/^http:\/\/localhost:\d+$/.test(origin)) return origin;
     // Check if origin matches local network IP pattern on any port
     if (/^http:\/\/192\.168\.\d+\.\d+:\d+$/.test(origin)) return origin;
+    // Android emulator: 10.0.2.2 is the host machine from the emulator
+    if (/^https?:\/\/10\.0\.2\.2(:\d+)?$/.test(origin)) {
+      console.log('[Auth Debug] CORS: allowing Android emulator origin', { origin });
+      return origin;
+    }
+    // Tailscale / Android emulator: allow .ts.net origins for login debugging
+    if (/^https?:\/\/[^/]+\.ts\.net(:\d+)?$/.test(origin)) {
+      console.log('[Auth Debug] CORS: allowing Tailscale origin', { origin });
+      return origin;
+    }
+    console.log('[Auth Debug] CORS: rejected origin (not in allowlist)', { origin });
     return null;
   },
   credentials: true,
@@ -181,6 +195,27 @@ app.on(["POST", "GET", "OPTIONS"], "/api/auth/*", async (c) => {
 		const response = await auth.handler(finalReq);
 
 		console.log(`[Auth Debug] Response ${url.pathname}`, { status: response?.status, statusText: response?.statusText });
+
+		// Debug 403 on login (e.g. Tailscale funnel / Android emulator)
+		if (response && response.status === 403) {
+			const pathname = url.pathname;
+			const isSignIn = pathname.includes('sign-in') || pathname.includes('signin');
+			let body: unknown = null;
+			try {
+				const cloned = response.clone();
+				const ct = cloned.headers.get('content-type') ?? '';
+				body = ct.includes('json') ? await cloned.json() : await cloned.text();
+			} catch (_) {}
+			console.log('[Auth Debug] 403 Forbidden on auth route', {
+				pathname,
+				isSignIn,
+				method: req.method,
+				origin: req.headers.get('origin') ?? '(none)',
+				referer: req.headers.get('referer') ?? '(none)',
+				host: req.headers.get('host') ?? '(none)',
+				responseBody: body,
+			});
+		}
 
 		if (url.pathname.includes('/verify-email')) {
 			console.log('[Backend Auth Debug] verify-email response status:', response?.status);
