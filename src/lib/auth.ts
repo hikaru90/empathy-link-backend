@@ -182,10 +182,21 @@ kannst du sie einfach ignorieren.
   }
 }
 
-const backendUrl = (process.env.BETTER_AUTH_URL || process.env.BACKEND_URL || 'http://localhost:4000').replace(/\/$/, '');
+// Dynamic base URL: Better Auth uses the request's Host (or x-forwarded-host) to build OAuth
+// redirect_uri, so native/tunnel/production all get the correct callback URL without env vars.
+const fallbackUrl = (process.env.BETTER_AUTH_URL || process.env.BACKEND_URL)?.replace(/\/$/, '');
 
 export const auth = betterAuth({
-  baseURL: backendUrl,
+  baseURL: {
+    allowedHosts: [
+      'localhost:4000',
+      'localhost:*',
+      '*.clustercluster.de',
+      '*.ts.net',
+    ],
+    ...(fallbackUrl ? { fallback: fallbackUrl } : {}),
+    protocol: 'auto',
+  },
   basePath: '/api/auth',
   plugins: [bearer(), expo()],
   database: drizzleAdapter(db, {
