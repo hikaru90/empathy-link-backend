@@ -221,7 +221,6 @@ export const auth = betterAuth({
     autoSignInAfterVerification: true,
   },
   trustedOrigins: async (request) => {
-    const origin = request.headers.get('origin');
     const isProduction = process.env.NODE_ENV === 'production';
     const staticOrigins = isProduction
       ? [
@@ -237,6 +236,9 @@ export const auth = betterAuth({
           'https://macbook-air.taild0bc12.ts.net',
         ];
 
+    if (!request) return staticOrigins;
+
+    const origin = request.headers.get('origin');
     console.log('[Auth Debug] trustedOrigins called', {
       origin: origin ?? '(no origin header)',
       method: request.method,
