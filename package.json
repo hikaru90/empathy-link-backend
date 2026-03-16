@@ -15,6 +15,7 @@
     "seed:email-templates": "npx tsx scripts/seed-email-templates.ts"
   },
   "dependencies": {
+    "@better-auth/expo": "^1.5.5",
     "@getbrevo/brevo": "^3.0.1",
     "@google/genai": "^1.25.0",
     "@hono/node-server": "^1.19.4",

@@ -1,4 +1,5 @@
 import * as brevo from '@getbrevo/brevo';
+import { expo } from "@better-auth/expo";
 import { betterAuth } from "better-auth";
 import { drizzleAdapter } from "better-auth/adapters/drizzle";
 import { bearer } from "better-auth/plugins/bearer";
@@ -186,7 +187,7 @@ const backendUrl = (process.env.BETTER_AUTH_URL || process.env.BACKEND_URL || 'h
 export const auth = betterAuth({
   baseURL: backendUrl,
   basePath: '/api/auth',
-  plugins: [bearer()],
+  plugins: [bearer(), expo()],
   database: drizzleAdapter(db, {
     provider: "pg",
     schema,
@@ -221,13 +222,20 @@ export const auth = betterAuth({
   },
   trustedOrigins: async (request) => {
     const origin = request.headers.get('origin');
-    const staticOrigins = [
-      'http://localhost:8081',
-      'https://expo.clustercluster.de', // Production frontend
-      'https://appleid.apple.com', // Required for Sign in with Apple
-      'empathy-link://',
-      'https://macbook-air.taild0bc12.ts.net'
-    ];
+    const isProduction = process.env.NODE_ENV === 'production';
+    const staticOrigins = isProduction
+      ? [
+          'https://expo.clustercluster.de', // Production frontend
+          'https://appleid.apple.com', // Required for Sign in with Apple
+          'empathy-link://',
+        ]
+      : [
+          'http://localhost:8081',
+          'https://expo.clustercluster.de',
+          'https://appleid.apple.com',
+          'empathy-link://',
+          'https://macbook-air.taild0bc12.ts.net',
+        ];
 
     console.log('[Auth Debug] trustedOrigins called', {
       origin: origin ?? '(no origin header)',
@@ -270,11 +278,10 @@ export const auth = betterAuth({
     return staticOrigins;
   },
   advanced: {
-    // Configure cookies for development with IP addresses
-    // In development, allow cookies over HTTP (not just HTTPS)
+    // Configure cookies: secure in production (HTTPS-only), allow HTTP in development
     defaultCookieAttributes: {
       sameSite: 'lax',
-      secure: false, // Allow cookies over HTTP in development
+      secure: process.env.NODE_ENV === 'production',
       httpOnly: true,
       // Don't set domain - let browser handle it per origin
     },
