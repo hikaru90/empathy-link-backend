@@ -38,7 +38,6 @@ app.use('/*', cors({
     const allowedOrigins = [
       'http://localhost:8081',
       'http://localhost:4000', // Dashboard (served by backend)
-      'http://192.168.0.230:8081', // Local network access for mobile devices
       'https://expo.clustercluster.de', // Production frontend
     ];
     if (!origin) {
@@ -196,6 +195,20 @@ app.on(["POST", "GET", "OPTIONS"], "/api/auth/*", async (c) => {
 				headers: req.headers,
 				body: text?.trim() ? text : '{}'
 			});
+		}
+
+		// When running behind HTTPS proxies (e.g. Tailscale), the internal request URL may be http://
+		// but the public origin is https://. Better Auth uses the request URL to build callback URLs,
+		// so normalize scheme/host from forwarded headers when present.
+		const forwardedProto = (req.headers.get('x-forwarded-proto') ?? '').split(',')[0]?.trim();
+		const forwardedHost = (req.headers.get('x-forwarded-host') ?? '').split(',')[0]?.trim();
+		const host = forwardedHost || req.headers.get('host') || url.host;
+		const proto = forwardedProto || url.protocol.replace(':', '');
+		if (host && proto && (host !== url.host || `${proto}:` !== url.protocol)) {
+			const publicUrl = new URL(req.url);
+			publicUrl.protocol = `${proto}:`;
+			publicUrl.host = host;
+			finalReq = new Request(publicUrl.toString(), finalReq);
 		}
 		
 		const response = await auth.handler(finalReq);

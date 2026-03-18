@@ -255,7 +255,6 @@ export const auth = betterAuth({
           'https://expo.clustercluster.de',
           'https://appleid.apple.com',
           'empathy-link://',
-          'https://macbook-air.taild0bc12.ts.net',
         ];
 
     if (!request) return staticOrigins;
