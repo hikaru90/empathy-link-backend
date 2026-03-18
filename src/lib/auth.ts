@@ -184,7 +184,13 @@ kannst du sie einfach ignorieren.
 
 // Dynamic base URL: Better Auth uses the request's Host (or x-forwarded-host) to build OAuth
 // redirect_uri, so native/tunnel/production all get the correct callback URL without env vars.
-const fallbackUrl = (process.env.BETTER_AUTH_URL || process.env.BACKEND_URL)?.replace(/\/$/, '');
+const isProduction = process.env.NODE_ENV === 'production';
+const fallbackUrl = (
+  (isProduction
+    ? (process.env.BETTER_AUTH_URL || process.env.BACKEND_URL)
+    : (process.env.TAILSCALE_BACKEND_URL || process.env.BETTER_AUTH_URL || process.env.BACKEND_URL)
+  ) ?? ''
+).replace(/\/$/, '') || undefined;
 
 export const auth = betterAuth({
   baseURL: {
@@ -232,7 +238,6 @@ export const auth = betterAuth({
     autoSignInAfterVerification: true,
   },
   trustedOrigins: async (request) => {
-    const isProduction = process.env.NODE_ENV === 'production';
     const staticOrigins = isProduction
       ? [
           'https://expo.clustercluster.de', // Production frontend

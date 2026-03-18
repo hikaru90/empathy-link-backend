@@ -180,6 +180,12 @@ app.on(["POST", "GET", "OPTIONS"], "/api/auth/*", async (c) => {
 			hasCookie: !!cookie,
 			cookieLength: cookie?.length ?? 0,
 		});
+
+		// redirect_uri_mismatch: add the logged URI to Google Cloud Console → Credentials → OAuth 2.0 Client → Authorized redirect URIs
+		if (url.pathname.includes('sign-in/social') || url.pathname.includes('expo-authorization-proxy')) {
+			const callbackUri = `${url.origin}/api/auth/callback/google`;
+			console.log('[Auth Debug] Google redirect_uri for this request (add to Google Console if you get redirect_uri_mismatch):', callbackUri);
+		}
 		
 		// better-call requires a JSON body for POST; sign-out sends empty body by default
 		let finalReq = req;
