@@ -182,8 +182,8 @@ kannst du sie einfach ignorieren.
   }
 }
 
-// Dynamic base URL: Better Auth uses the request's Host (or x-forwarded-host) to build OAuth
-// redirect_uri, so native/tunnel/production all get the correct callback URL without env vars.
+// Dynamic base URL: Better Auth uses the request's Host (and forwarded headers) to build OAuth
+// redirect_uri. Behind proxies, ensure we prefer https in production so Secure cookies survive.
 const isProduction = process.env.NODE_ENV === 'production';
 const fallbackUrl = (
   (isProduction
@@ -191,6 +191,12 @@ const fallbackUrl = (
     : (process.env.TAILSCALE_BACKEND_URL || process.env.BETTER_AUTH_URL || process.env.BACKEND_URL)
   ) ?? ''
 ).replace(/\/$/, '') || undefined;
+
+const cookieSecure =
+  isProduction || (fallbackUrl ? fallbackUrl.startsWith('https://') : false);
+// Browsers require SameSite=None cookies to also be Secure. If we're on plain http (local dev),
+// fall back to Lax so cookies aren't silently rejected.
+const cookieSameSite: 'lax' | 'none' = cookieSecure ? 'none' : 'lax';
 
 export const auth = betterAuth({
   baseURL: {
@@ -201,7 +207,7 @@ export const auth = betterAuth({
       '*.ts.net',
     ],
     ...(fallbackUrl ? { fallback: fallbackUrl } : {}),
-    protocol: 'auto',
+    protocol: cookieSecure ? 'https' : 'auto',
   },
   basePath: '/api/auth',
   plugins: [bearer(), expo()],
@@ -296,10 +302,12 @@ export const auth = betterAuth({
     return staticOrigins;
   },
   advanced: {
-    // Configure cookies: secure in production (HTTPS-only), allow HTTP in development
+    // Configure cookies:
+    // - For cross-site frontends (e.g. localhost app → remote API), we need SameSite=None so XHR sends cookies.
+    // - SameSite=None requires Secure, so we only use it when we know we're on https.
     defaultCookieAttributes: {
-      sameSite: 'lax',
-      secure: process.env.NODE_ENV === 'production',
+      sameSite: cookieSameSite,
+      secure: cookieSecure,
       httpOnly: true,
       // Don't set domain - let browser handle it per origin
     },
